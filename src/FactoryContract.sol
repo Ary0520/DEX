@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {Pair} from "./Pair.sol";
+
 contract Factory{
 
     address public feeTo;
@@ -12,7 +14,7 @@ contract Factory{
 
     event PairCreated(address indexed token0, address indexed token1, address pairAddress);
     
-    mapping(address tokenA => mapping(address tokenB => address)) public getPair;
+    mapping(address token0 => mapping(address token1 => address)) public getPair;
 
     address[] public allPairs; //array of all pairs
 
@@ -28,6 +30,17 @@ contract Factory{
         if(getPair[token0][token1] != address(0)){
             revert DEX__PairAlreadyExists();
         }
+        //deploy and initalize new pair contract->
+        Pair pair = new Pair();
+        pair.initialize(token0, token1);
+        //store pair in the mapping->
+        getPair[token0][token1] = address(pair);
+        getPair[token1][token0] = address(pair);
+        
+        allPairs.push(address(pair));
+
+        emit PairCreated(token0, token1, address(pair));
+        
     }
 
 }
