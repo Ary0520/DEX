@@ -11,6 +11,7 @@ contract Factory{
     error DEX__IdenticalTokens();
     error DEX__ZeroAddress();
     error DEX__PairAlreadyExists();
+    error DEX__Forbidden();
 
     event PairCreated(address indexed token0, address indexed token1, address pairAddress);
     
@@ -18,6 +19,9 @@ contract Factory{
 
     address[] public allPairs; //array of all pairs
 
+    ///////////////
+    //functions->//
+    ///////////////
     function createPair(address tokenA, address tokenB) external{
         if(tokenA == tokenB){
             revert DEX__IdenticalTokens();
@@ -43,4 +47,23 @@ contract Factory{
         
     }
 
-}
+    function setFeeTo(address newFeeTo) external {
+        if(msg.sender != feeToSetter){
+            revert DEX__Forbidden();
+        }
+        if(msg.sender == address(0)){
+            revert DEX__ZeroAddress();
+        }
+        feeTo = newFeeTo;
+    }
+
+    function setFeeToSetter(address newSetter) external{
+        if(msg.sender != feeToSetter){
+            revert DEX__Forbidden();
+        }
+        if(msg.sender == address(0)){
+            revert DEX__ZeroAddress();
+        }
+        feeToSetter = newSetter;
+    }
+}     
