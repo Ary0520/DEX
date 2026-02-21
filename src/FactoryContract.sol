@@ -19,6 +19,10 @@ contract Factory{
 
     address[] public allPairs; //array of all pairs
 
+    constructor(){
+        feeToSetter = msg.sender;
+    }
+
     ///////////////
     //functions->//
     ///////////////
@@ -51,7 +55,7 @@ contract Factory{
         if(msg.sender != feeToSetter){
             revert DEX__Forbidden();
         }
-        if(msg.sender == address(0)){
+        if(newFeeTo == address(0)){
             revert DEX__ZeroAddress();
         }
         feeTo = newFeeTo;
@@ -61,9 +65,10 @@ contract Factory{
         if(msg.sender != feeToSetter){
             revert DEX__Forbidden();
         }
-        if(msg.sender == address(0)){
+        if(newSetter == address(0)){
             revert DEX__ZeroAddress();
         }
         feeToSetter = newSetter;
     }
-}     
+    
+}
