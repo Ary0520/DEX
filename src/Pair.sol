@@ -25,6 +25,7 @@ contract Pair is ERC20 {
     error Pair__AlreadyInitialized();
     error Pair__InsufficientLiquidityMinted();
     error Pair__AmountZero();
+    error Pair__TransferFailed();
 
     bool isAlreadyInitialized;
 
@@ -62,6 +63,14 @@ contract Pair is ERC20 {
         reserve0 = uint112(balance0);
         reserve1 = uint112(balance1);
         blockTimestampLast = uint32(block.timestamp);
+    }
+
+    function _safeTransfer(address token, address to, uint amount) internal{
+        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(IERC20.transfer.selector, to, amount));
+
+        if (!success || (data.length > 0 && !abi.decode(data, (bool)))) {
+            revert Pair__TransferFailed();
+        }
     }
 
     function mint(address to) external returns(uint _liquidity){
@@ -110,12 +119,17 @@ contract Pair is ERC20 {
 
     function burn(address to) external{
         uint liquidity = balanceOf(address(this)); //since contract itself is lptoken
+        if(liquidity == 0){
+            revert Pair__AmountZero();
+        }
         uint112 _reserve0 = reserve0;
         uint112 _reserve1 = reserve1;
         uint _totalSupply = totalSupply();
 
         uint amount0;
         uint amount1;
+        address _token0 = token0;
+        address _token1 = token1;
 
         amount0 = (liquidity * _reserve0)/_totalSupply;
         amount1 = (liquidity * _reserve1)/_totalSupply;
@@ -123,9 +137,11 @@ contract Pair is ERC20 {
         if(amount0 == 0 || amount1 == 0){
             revert Pair__AmountZero();
         }else{
-            _burn(address(this), liquidity); //burn LP token first, rebel reentrancy
-            bool success1 = IERC20(token0).transfer(to, amount0);
-            bool success2 = IERC20(token1).transfer(to, amount1);
+            _burn(address(this), liquidity); //burn LP token first, prevent reentrancy
+            _safeTransfer(_token0, to, amount0);
+            _safeTransfer(_token1, to, amount1);
+
+            _update();
         }
     }
 }
