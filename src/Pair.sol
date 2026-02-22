@@ -6,8 +6,10 @@ pragma solidity ^0.8.20;
 /// @notice a pair contract: - hold token reserves, handles swaps, mint LP tokens, track liquidity.
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-contract Pair{
+contract Pair is ERC20 {
     address public factory;
     address public token0;
     address public token1;
@@ -16,12 +18,17 @@ contract Pair{
     uint112 private reserve1;
     uint32 blockTimestampLast;
 
+    uint256 public constant MINIMUM_LIQUIDITY = 1000;
+    
+
     error Pair__Forbidden();
     error Pair__AlreadyInitialized();
+    error Pair__InsufficientLiquidityMinted();
+    error Pair__AmountZero();
 
     bool isAlreadyInitialized;
 
-    constructor(){
+    constructor() ERC20("LP-TOKEN", "LP"){
         factory = msg.sender;
     }
 
@@ -55,5 +62,70 @@ contract Pair{
         reserve0 = uint112(balance0);
         reserve1 = uint112(balance1);
         blockTimestampLast = uint32(block.timestamp);
+    }
+
+    function mint(address to) external returns(uint _liquidity){
+        uint256 balance0 = IERC20(token0).balanceOf(address(this));
+        uint256 balance1 = IERC20(token1).balanceOf(address(this));
+
+        require(balance0 <= type(uint112).max, "OVERFLOW");
+        require(balance1 <= type(uint112).max, "OVERFLOW");
+
+        uint112 oldReserve0 = reserve0;
+        uint112 oldReserve1 = reserve1;
+
+        uint256 amount0 = balance0 - oldReserve0;
+        uint256 amount1 = balance1 - oldReserve1;
+
+        require(amount0 > 0 && amount1 > 0, "Amount must be more than zero");
+
+        uint256 liquidity;
+        uint256 _totalSupply = totalSupply();
+
+        if(_totalSupply == 0){
+            liquidity = Math.sqrt(amount0 * amount1) - MINIMUM_LIQUIDITY;
+            if(liquidity <= 0){
+                revert Pair__InsufficientLiquidityMinted();
+            }else{
+                _mint(address(0), MINIMUM_LIQUIDITY); //protects the protocol
+                _mint(to, liquidity);
+            }
+        }else{ //liquidity already exists in pool
+            require(oldReserve0 > 0 && oldReserve1 > 0, "zero reserves!");
+
+            uint liquidity0 = (amount0 * _totalSupply)/oldReserve0;
+            uint liquidity1 = (amount1 * _totalSupply)/oldReserve1;
+
+            liquidity = Math.min(liquidity0, liquidity1);
+            if(liquidity <= 0){
+                revert Pair__InsufficientLiquidityMinted();
+            }else{
+                _mint(to, liquidity);
+            }
+        }
+
+        _update();
+        return liquidity;
+    }
+
+    function burn(address to) external{
+        uint liquidity = balanceOf(address(this)); //since contract itself is lptoken
+        uint112 _reserve0 = reserve0;
+        uint112 _reserve1 = reserve1;
+        uint _totalSupply = totalSupply();
+
+        uint amount0;
+        uint amount1;
+
+        amount0 = (liquidity * _reserve0)/_totalSupply;
+        amount1 = (liquidity * _reserve1)/_totalSupply;
+
+        if(amount0 == 0 || amount1 == 0){
+            revert Pair__AmountZero();
+        }else{
+            _burn(address(this), liquidity); //burn LP token first, rebel reentrancy
+            bool success1 = IERC20(token0).transfer(to, amount0);
+            bool success2 = IERC20(token1).transfer(to, amount1);
+        }
     }
 }
