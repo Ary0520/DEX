@@ -26,6 +26,8 @@ contract Pair is ERC20 {
     error Pair__InsufficientLiquidityMinted();
     error Pair__AmountZero();
     error Pair__TransferFailed();
+    error Pair__ZeroTotalSupply();
+    error Pair__InsufficientOutputAmount();
 
     bool isAlreadyInitialized;
 
@@ -117,22 +119,25 @@ contract Pair is ERC20 {
         return liquidity;
     }
 
-    function burn(address to) external{
+    function burn(address to) external returns(uint _amount0, uint _amount1){
         uint liquidity = balanceOf(address(this)); //since contract itself is lptoken
         if(liquidity == 0){
             revert Pair__AmountZero();
         }
-        uint112 _reserve0 = reserve0;
-        uint112 _reserve1 = reserve1;
-        uint _totalSupply = totalSupply();
-
-        uint amount0;
-        uint amount1;
         address _token0 = token0;
         address _token1 = token1;
 
-        amount0 = (liquidity * _reserve0)/_totalSupply;
-        amount1 = (liquidity * _reserve1)/_totalSupply;
+        uint balance0 = IERC20(_token0).balanceOf(address(this));
+        uint balance1 = IERC20(_token1).balanceOf(address(this));
+        uint _totalSupply = totalSupply();
+        if(_totalSupply == 0){
+            revert Pair__ZeroTotalSupply();
+        }
+
+        uint amount0;
+        uint amount1;
+        amount0 = (liquidity * balance0)/_totalSupply;
+        amount1 = (liquidity * balance1)/_totalSupply;
 
         if(amount0 == 0 || amount1 == 0){
             revert Pair__AmountZero();
@@ -142,6 +147,18 @@ contract Pair is ERC20 {
             _safeTransfer(_token1, to, amount1);
 
             _update();
+            return(amount0, amount1);
         }
+    }
+
+    function swap(uint amount0Out, uint amount1Out, address to)external{
+        if(amount0Out == 0 || amount1Out == 0){
+            revert Pair__InsufficientOutputAmount();
+        }
+        if(amount0Out > 0 && amount1Out > 0){
+            revert Pair__Forbidden();
+        }
+        
+        
     }
 }
