@@ -152,13 +152,26 @@ contract Pair is ERC20 {
     }
 
     function swap(uint amount0Out, uint amount1Out, address to)external{
-        if(amount0Out == 0 || amount1Out == 0){
+        if(amount0Out == 0 && amount1Out == 0){
             revert Pair__InsufficientOutputAmount();
         }
         if(amount0Out > 0 && amount1Out > 0){
             revert Pair__Forbidden();
         }
-        
+        uint112 _reserve0 = reserve0;
+        uint112 _reserve1 = reserve1;
+        address _token0 = token0;
+        address _token1 = token1;
+
+        if(amount0Out > _reserve0 || amount1Out > _reserve1){
+            revert Pair__Forbidden();
+        }
+        if(amount0Out > 0){
+            _safeTransfer(_token0, to, amount0Out);
+        }
+        if(amount1Out>0){
+            _safeTransfer(_token1, to, amount1Out);
+        }
         
     }
 }
