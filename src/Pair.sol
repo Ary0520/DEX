@@ -30,11 +30,23 @@ contract Pair is ERC20 {
     error Pair__InsufficientOutputAmount();
     error Pair__InvariantViolation();
     error Pair__InvalidAddress();
+    error Pair__Locked();
 
     bool isAlreadyInitialized;
 
     constructor() ERC20("LP-TOKEN", "LP"){
         factory = msg.sender;
+    }
+
+    //protecting with reentrancy->
+    uint private unlocked = 1; //locked means 0
+    modifier lock(){
+        if(unlocked != 1){ //if function is locked
+            revert Pair__Locked();
+        }
+        unlocked = 0; //lock the function
+        _; //function runs here
+        unlocked =1 ;
     }
 
     /////////////
@@ -77,7 +89,7 @@ contract Pair is ERC20 {
         }
     }
 
-    function mint(address to) external returns(uint _liquidity){
+    function mint(address to) external lock returns(uint _liquidity){
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
         uint256 balance1 = IERC20(token1).balanceOf(address(this));
 
@@ -121,7 +133,7 @@ contract Pair is ERC20 {
         return liquidity;
     }
 
-    function burn(address to) external returns(uint _amount0, uint _amount1){
+    function burn(address to) external lock returns(uint _amount0, uint _amount1){
         uint liquidity = balanceOf(address(this)); //since contract itself is lptoken
         if(liquidity == 0){
             revert Pair__AmountZero();
@@ -153,7 +165,7 @@ contract Pair is ERC20 {
         }
     }
 
-    function swap(uint amount0Out, uint amount1Out, address to)external{
+    function swap(uint amount0Out, uint amount1Out, address to) external lock {
         uint112 _reserve0 = reserve0;
         uint112 _reserve1 = reserve1;
         address _token0 = token0;
