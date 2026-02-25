@@ -28,6 +28,8 @@ contract Pair is ERC20 {
     error Pair__TransferFailed();
     error Pair__ZeroTotalSupply();
     error Pair__InsufficientOutputAmount();
+    error Pair__InvariantViolation();
+    error Pair__InvalidAddress();
 
     bool isAlreadyInitialized;
 
@@ -152,16 +154,20 @@ contract Pair is ERC20 {
     }
 
     function swap(uint amount0Out, uint amount1Out, address to)external{
+        uint112 _reserve0 = reserve0;
+        uint112 _reserve1 = reserve1;
+        address _token0 = token0;
+        address _token1 = token1;
+
         if(amount0Out == 0 && amount1Out == 0){
             revert Pair__InsufficientOutputAmount();
         }
         if(amount0Out > 0 && amount1Out > 0){
             revert Pair__Forbidden();
         }
-        uint112 _reserve0 = reserve0;
-        uint112 _reserve1 = reserve1;
-        address _token0 = token0;
-        address _token1 = token1;
+        if(to == _token0 || to == _token1){
+            revert Pair__InvalidAddress();
+        }
 
         if(amount0Out > _reserve0 || amount1Out > _reserve1){
             revert Pair__Forbidden();
@@ -172,6 +178,26 @@ contract Pair is ERC20 {
         if(amount1Out>0){
             _safeTransfer(_token1, to, amount1Out);
         }
+
+        //reading new balances->
+        uint balance0 = IERC20(_token0).balanceOf(address(this));
+        uint balance1 = IERC20(_token1).balanceOf(address(this));
+
+        uint amount0In = balance0 > _reserve0 - amount0Out ? balance0 - (_reserve0 - amount0Out) : 0;
+        uint amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
+
+        if(amount0In==0 && amount1In ==0){
+            revert Pair__AmountZero();
+        }
         
+        uint balance0Adjusted = balance0 * 1000 - amount0In*3;
+        uint balance1Adjusted = balance1 * 1000 - amount1In*3;
+
+        
+        if(balance0Adjusted * balance1Adjusted < _reserve0 * _reserve1 * 1000*1000){
+            revert Pair__InvariantViolation();
+        }
+
+        _update();
     }
 }
