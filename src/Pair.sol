@@ -31,6 +31,9 @@ contract Pair is ERC20 {
     error Pair__InvariantViolation();
     error Pair__InvalidAddress();
     error Pair__Locked();
+    error Pair__Overflow();
+    error Pair__AmountMustBeMoreThanZero();
+    error Pair__ZeroReserves();
 
     bool isAlreadyInitialized;
 
@@ -48,6 +51,19 @@ contract Pair is ERC20 {
         _; //function runs here
         unlocked =1 ;
     }
+
+    //events
+    event Mint(address indexed sender, uint amount0, uint amount1);
+    event Burn(address indexed sender, uint amount0, uint amount1, address indexed to);
+    event Swap(
+        address indexed sender,
+        uint amount0In,
+        uint amount1In,
+        uint amount0Out,
+        uint amount1Out,
+        address indexed to
+    );
+    event Sync(uint112 reserve0, uint112 reserve1);
 
     /////////////
     //functions//
@@ -73,12 +89,20 @@ contract Pair is ERC20 {
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
         uint256 balance1 = IERC20(token1).balanceOf(address(this));
 
-        require(balance0 <= type(uint112).max, "OVERFLOW");
-        require(balance1 <= type(uint112).max, "OVERFLOW");
+        // require(balance0 <= type(uint112).max, "OVERFLOW");
+        // require(balance1 <= type(uint112).max, "OVERFLOW");
+        if(balance0 > type(uint112).max){
+            revert Pair__Overflow();
+        }
+        if(balance1 > type(uint112).max){
+            revert Pair__Overflow();
+        }
         
         reserve0 = uint112(balance0);
         reserve1 = uint112(balance1);
         blockTimestampLast = uint32(block.timestamp);
+
+        emit Sync(reserve0, reserve1);
     }
 
     function _safeTransfer(address token, address to, uint amount) internal{
@@ -93,16 +117,27 @@ contract Pair is ERC20 {
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
         uint256 balance1 = IERC20(token1).balanceOf(address(this));
 
-        require(balance0 <= type(uint112).max, "OVERFLOW");
-        require(balance1 <= type(uint112).max, "OVERFLOW");
+        // require(balance0 <= type(uint112).max, "OVERFLOW");
+        // require(balance1 <= type(uint112).max, "OVERFLOW");
+
+        if(balance0 > type(uint112).max){
+            revert Pair__Overflow();
+        }
+        if(balance1 > type(uint112).max){
+            revert Pair__Overflow();
+        }
 
         uint112 oldReserve0 = reserve0;
         uint112 oldReserve1 = reserve1;
 
+        //amounts sent by msg.sender->
         uint256 amount0 = balance0 - oldReserve0;
         uint256 amount1 = balance1 - oldReserve1;
 
-        require(amount0 > 0 && amount1 > 0, "Amount must be more than zero");
+        // require(amount0 > 0 && amount1 > 0, "Amount must be more than zero");
+        if(amount0 == 0 || amount1 ==0 ){
+            revert Pair__AmountMustBeMoreThanZero();
+        }
 
         uint256 liquidity;
         uint256 _totalSupply = totalSupply();
@@ -116,7 +151,11 @@ contract Pair is ERC20 {
                 _mint(to, liquidity);
             }
         }else{ //liquidity already exists in pool
-            require(oldReserve0 > 0 && oldReserve1 > 0, "zero reserves!");
+            // require(oldReserve0 > 0 && oldReserve1 > 0, "zero reserves!");
+            if(oldReserve0 == 0 || oldReserve1 == 0){
+                revert Pair__ZeroReserves();
+            }
+
 
             uint liquidity0 = (amount0 * _totalSupply)/oldReserve0;
             uint liquidity1 = (amount1 * _totalSupply)/oldReserve1;
@@ -128,7 +167,7 @@ contract Pair is ERC20 {
                 _mint(to, liquidity);
             }
         }
-
+        emit Mint(msg.sender, amount0, amount1);
         _update();
         return liquidity;
     }
@@ -160,6 +199,7 @@ contract Pair is ERC20 {
             _safeTransfer(_token0, to, amount0);
             _safeTransfer(_token1, to, amount1);
 
+            emit Burn(msg.sender, amount0, amount1, to);
             _update();
             return(amount0, amount1);
         }
@@ -206,10 +246,13 @@ contract Pair is ERC20 {
         uint balance1Adjusted = balance1 * 1000 - amount1In*3;
 
         
-        if(balance0Adjusted * balance1Adjusted < _reserve0 * _reserve1 * 1000*1000){
+        if(balance0Adjusted * balance1Adjusted < uint256(_reserve0) * uint256(_reserve1) * 1000*1000){
             revert Pair__InvariantViolation();
         }
 
+        emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);
         _update();
     }
+
+
 }
