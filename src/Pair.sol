@@ -129,7 +129,7 @@ contract Pair is ERC20 {
             return;
         }else{
             if(kLast != 0 ){
-                uint rootK = Math.sqrt(_reserve0 * _reserve1);
+                uint rootK = Math.sqrt(uint256(_reserve0) * uint256(_reserve1));
                 uint rootKLast = Math.sqrt(kLast);
                 if(rootK > rootKLast){
                     uint liquidity = _totalSupply * (rootK - rootKLast)/(rootK * 5 + rootKLast);
@@ -157,6 +157,8 @@ contract Pair is ERC20 {
 
         uint112 oldReserve0 = reserve0;
         uint112 oldReserve1 = reserve1;
+
+        _mintProtocolFee(oldReserve0, oldReserve1);
 
         //amounts sent by msg.sender->
         uint256 amount0 = balance0 - oldReserve0;
@@ -197,6 +199,12 @@ contract Pair is ERC20 {
         }
         emit Mint(msg.sender, amount0, amount1);
         _update();
+
+        address feeTo = IFactory(factory).feeTo();
+        if(feeTo != address(0)){
+            kLast = uint256(reserve0) * uint256(reserve1);
+        }
+
         return liquidity;
     }
 
@@ -207,6 +215,11 @@ contract Pair is ERC20 {
         }
         address _token0 = token0;
         address _token1 = token1;
+
+        uint112 oldReserve0 = reserve0;
+        uint112 oldReserve1 = reserve1;
+
+        _mintProtocolFee(oldReserve0, oldReserve1);
 
         uint balance0 = IERC20(_token0).balanceOf(address(this));
         uint balance1 = IERC20(_token1).balanceOf(address(this));
@@ -229,6 +242,11 @@ contract Pair is ERC20 {
 
             emit Burn(msg.sender, amount0, amount1, to);
             _update();
+            bool feeOn = IFactory(factory).feeTo() != address(0);
+            if (feeOn) {
+                kLast = uint256(reserve0) * uint256(reserve1);
+            }
+
             return(amount0, amount1);
         }
     }
