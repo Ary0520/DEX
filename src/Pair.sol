@@ -9,6 +9,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+interface IFactory {
+    function feeTo() external view returns (address);
+}
+
 contract Pair is ERC20 {
     address public factory;
     address public token0;
@@ -19,7 +23,8 @@ contract Pair is ERC20 {
     uint32 blockTimestampLast;
 
     uint256 public constant MINIMUM_LIQUIDITY = 1000;
-    
+
+    uint public kLast;    
 
     error Pair__Forbidden();
     error Pair__AlreadyInitialized();
@@ -110,6 +115,29 @@ contract Pair is ERC20 {
 
         if (!success || (data.length > 0 && !abi.decode(data, (bool)))) {
             revert Pair__TransferFailed();
+        }
+    }
+
+    //protocol fee logic->
+    function _mintProtocolFee(uint112 _reserve0, uint112 _reserve1) internal{
+        uint _totalSupply = totalSupply();
+        address feeTo = IFactory(factory).feeTo();
+        if(feeTo == address(0)){
+            if(kLast != 0){
+                kLast = 0;
+            }
+            return;
+        }else{
+            if(kLast != 0 ){
+                uint rootK = Math.sqrt(_reserve0 * _reserve1);
+                uint rootKLast = Math.sqrt(kLast);
+                if(rootK > rootKLast){
+                    uint liquidity = _totalSupply * (rootK - rootKLast)/(rootK * 5 + rootKLast);
+                    if(liquidity > 0 ){
+                        _mint(feeTo, liquidity);
+                    }
+                }
+            }
         }
     }
 

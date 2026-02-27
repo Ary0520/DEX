@@ -55,9 +55,6 @@ contract Factory{
         if(msg.sender != feeToSetter){
             revert DEX__Forbidden();
         }
-        if(newFeeTo == address(0)){
-            revert DEX__ZeroAddress();
-        }
         feeTo = newFeeTo;
     }
 
