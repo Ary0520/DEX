@@ -161,6 +161,23 @@ contract Router{
         if(amountB < amountBMin){
             revert Router__SlippageExceeded();
         }
+
+        return(amountA, amountB);
+    }
+
+    //external removeliquidity(callable by user)->
+    function removeLiquidity(address tokenA, address tokenB, uint liquidity, uint amountAMin, uint amountBMin, address to, uint deadline) external ensure(deadline) returns(uint amountA, uint amountB){    
+        
+        (amountA, amountB) = _removeLiquidity(
+        tokenA,
+        tokenB,
+        liquidity,
+        amountAMin,
+        amountBMin,
+        to
+        );
+        return(amountA, amountB);
+
     }
 
 }
