@@ -135,4 +135,32 @@ contract Router{
 
     }
 
+    //*internal _remove liquidity
+    function _removeLiquidity(address tokenA, address tokenB, uint liquidity, uint amountAMin, uint amountBMin, address to) internal returns(uint amountA, uint amountB){
+        address pair = IFactory(factory).getPair(tokenA, tokenB);
+        if(pair == address(0)){
+            revert Router__PairNotFound();
+        }
+        _safeTransferFrom(pair, msg.sender, pair, liquidity);
+        (uint amount0, uint amount1) = IPair(pair).burn(to);
+
+        address token0 = IPair(pair).token0();        
+        if(tokenA == token0){
+            amountA = amount0;
+            amountB = amount1;
+
+        }else{
+            amountA = amount1;
+            amountB = amount0;
+        }
+
+        //slippage protection->
+        if(amountA < amountAMin){
+            revert Router__SlippageExceeded();
+        }
+        if(amountB < amountBMin){
+            revert Router__SlippageExceeded();
+        }
+    }
+
 }
