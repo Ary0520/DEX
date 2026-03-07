@@ -28,6 +28,7 @@ contract Router{
     error Router__PairNotFound();
     error Router__SlippageExceeded();
     error Router__TransferFailed();
+    error Router__AmountZero();
 
     constructor(address _factory){
         if(_factory == address(0)){
@@ -178,6 +179,53 @@ contract Router{
         );
         return(amountA, amountB);
 
+    }
+
+    //(internal helper fn) compute output for one pair
+    function getAmountOut(uint amountIn, uint reserveIn, uint reserveOut) internal pure returns(uint amountOut){
+        if(amountIn== 0){
+            revert Router__AmountZero();
+        }
+        if( reserveIn == 0 || reserveOut == 0){
+            revert Router__PairNotFound();
+        }
+
+        uint amountInWithFee = amountIn * 997;
+        amountOut = (amountInWithFee * reserveOut) / (reserveIn * 1000 + amountInWithFee);
+
+        return(amountOut);
+    }
+
+    //computer for multiple pairs
+    function getAmountsOut(uint amountIn, address[] memory path) internal view returns(uint[] memory amounts){
+        amounts = new uint[](path.length);
+
+        //first element is the input itself
+        amounts[0] = amountIn;
+
+        for(uint i = 0; i<path.length -1; i++){
+            address pair = IFactory(factory).getPair(path[i], path[i+1]);
+            if(pair == address(0)){
+                revert Router__PairNotFound();
+            }
+            (uint reserve0, uint reserve1,) = IPair(pair).getReserves();
+            address token0 = IPair(pair).token0();
+
+            uint reserveIn;
+            uint reserveOut;
+
+            if (path[i] == token0) {
+                reserveIn = reserve0;
+                reserveOut = reserve1;
+            } else {
+                reserveIn = reserve1;
+                reserveOut = reserve0;
+            }
+
+            amounts[i+1] = getAmountOut(amounts[i], reserveIn, reserveOut);
+
+        }
+        
     }
 
 }
