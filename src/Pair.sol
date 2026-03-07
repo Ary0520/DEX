@@ -22,6 +22,10 @@ contract Pair is ERC20 {
     uint112 private reserve1;
     uint32 blockTimestampLast;
 
+    //for twap oracle->
+    uint public price0CumulativeLast;
+    uint public price1CumulativeLast;
+
     uint256 public constant MINIMUM_LIQUIDITY = 1000;
 
     uint public kLast;    
@@ -103,10 +107,21 @@ contract Pair is ERC20 {
             revert Pair__Overflow();
         }
         
+        uint32 blockTimestamp = uint32(block.timestamp);
+        uint32 timeElapsed = blockTimestamp - blockTimestampLast;
+
+        if(timeElapsed > 0 && reserve0 != 0 && reserve1 != 0){
+            uint price0 = uint(reserve1) * 1e18 /reserve0;
+            uint price1 = uint(reserve0) * 1e18/reserve1;
+
+            price0CumulativeLast += price0 * timeElapsed;
+            price0CumulativeLast += price1 * timeElapsed;
+        }
+
         reserve0 = uint112(balance0);
         reserve1 = uint112(balance1);
-        blockTimestampLast = uint32(block.timestamp);
-
+        blockTimestampLast = blockTimestamp;
+        
         emit Sync(reserve0, reserve1);
     }
 
