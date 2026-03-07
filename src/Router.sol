@@ -228,4 +228,55 @@ contract Router{
         
     }
 
+    function _swap(uint[] memory amounts, address[] memory path, address _to)internal{
+
+        for (uint i = 0; i < path.length - 1; i++) {
+
+            address input = path[i];
+            address output = path[i + 1];
+
+            address pair = IFactory(factory).getPair(input, output);
+
+            address token0 = IPair(pair).token0();
+
+            uint amountOut = amounts[i + 1];
+
+            uint amount0Out;
+            uint amount1Out;
+
+            if (input == token0) {
+                amount0Out = 0;
+                amount1Out = amountOut;
+            } else {
+                amount0Out = amountOut;
+                amount1Out = 0;
+            }
+
+            address to;
+
+            if (i < path.length - 2) {
+                to = IFactory(factory).getPair(output, path[i + 2]);
+            } else {
+                to = _to;
+            }
+
+            IPair(pair).swap(amount0Out, amount1Out, to);
+        }   
+
+    }
+
+    function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external ensure(deadline) returns (uint[] memory amounts){
+
+        amounts = getAmountsOut(amountIn, path);
+
+        if (amounts[amounts.length - 1] < amountOutMin) {
+            revert Router__SlippageExceeded();
+        }
+
+        address pair = IFactory(factory).getPair(path[0], path[1]);
+        _safeTransferFrom(path[0], msg.sender, pair, amounts[0]);
+        _swap(amounts, path, to);
+        return amounts;
+
+    }
 }
