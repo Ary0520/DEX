@@ -87,6 +87,8 @@ contract Pair is ERC20 {
 
         token0 = _token0;
         token1 = _token1;
+        if (_token0 == _token1) revert Pair__InvalidAddress();
+        if (_token0 == address(0) || _token1 == address(0)) revert Pair__InvalidAddress();
         isAlreadyInitialized = true;
     }
 
@@ -94,7 +96,7 @@ contract Pair is ERC20 {
         return (reserve0, reserve1, blockTimestampLast);
     }
 
-    function _update() internal{
+    function _update() internal{    
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
         uint256 balance1 = IERC20(token1).balanceOf(address(this));
 
@@ -115,7 +117,7 @@ contract Pair is ERC20 {
             uint price1 = uint(reserve0) * 1e18/reserve1;
 
             price0CumulativeLast += price0 * timeElapsed;
-            price0CumulativeLast += price1 * timeElapsed;
+            price1CumulativeLast += price1 * timeElapsed;
         }
 
         reserve0 = uint112(balance0);
@@ -189,7 +191,7 @@ contract Pair is ERC20 {
 
         if(_totalSupply == 0){
             liquidity = Math.sqrt(amount0 * amount1) - MINIMUM_LIQUIDITY;
-            if(liquidity <= 0){
+            if(liquidity == 0){
                 revert Pair__InsufficientLiquidityMinted();
             }else{
                 _mint(address(0), MINIMUM_LIQUIDITY); //protects the protocol
@@ -315,5 +317,16 @@ contract Pair is ERC20 {
         _update();
     }
 
+    function skim(address to) external lock {
+        address _token0 = token0;
+        address _token1 = token1;
+
+        _safeTransfer(_token0, to, IERC20(_token0).balanceOf(address(this)) - reserve0);
+        _safeTransfer(_token1, to, IERC20(_token1).balanceOf(address(this)) - reserve1);
+    }
+
+    function sync() external lock {
+        _update();
+    }
 
 }
