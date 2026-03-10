@@ -190,13 +190,14 @@ contract Pair is ERC20 {
         uint256 _totalSupply = totalSupply();
 
         if(_totalSupply == 0){
-            liquidity = Math.sqrt(amount0 * amount1) - MINIMUM_LIQUIDITY;
-            if(liquidity == 0){
+            uint256 sqrtK = Math.sqrt(amount0 * amount1);
+            if(sqrtK <= MINIMUM_LIQUIDITY){
                 revert Pair__InsufficientLiquidityMinted();
-            }else{
-                _mint(address(1), MINIMUM_LIQUIDITY); //protects the protocol
-                _mint(to, liquidity);
             }
+            liquidity = sqrtK - MINIMUM_LIQUIDITY;
+            _mint(address(1), MINIMUM_LIQUIDITY);
+            _mint(to, liquidity);
+
         }else{ //liquidity already exists in pool
             // require(oldReserve0 > 0 && oldReserve1 > 0, "zero reserves!");
             if(oldReserve0 == 0 || oldReserve1 == 0){
