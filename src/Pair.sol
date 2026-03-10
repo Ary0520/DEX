@@ -194,7 +194,7 @@ contract Pair is ERC20 {
             if(liquidity == 0){
                 revert Pair__InsufficientLiquidityMinted();
             }else{
-                _mint(address(0), MINIMUM_LIQUIDITY); //protects the protocol
+                _mint(address(1), MINIMUM_LIQUIDITY); //protects the protocol
                 _mint(to, liquidity);
             }
         }else{ //liquidity already exists in pool

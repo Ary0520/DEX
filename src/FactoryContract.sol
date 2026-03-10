@@ -26,7 +26,7 @@ contract Factory{
     ///////////////
     //functions->//
     ///////////////
-    function createPair(address tokenA, address tokenB) external{
+    function createPair(address tokenA, address tokenB) external returns (address pair){
         if(tokenA == tokenB){
             revert DEX__IdenticalTokens();
         }
@@ -39,15 +39,17 @@ contract Factory{
             revert DEX__PairAlreadyExists();
         }
         //deploy and initalize new pair contract->
-        Pair pair = new Pair();
-        pair.initialize(token0, token1);
-        //store pair in the mapping->
-        getPair[token0][token1] = address(pair);
-        getPair[token1][token0] = address(pair);
-        
-        allPairs.push(address(pair));
+        Pair _pair = new Pair();
+        _pair.initialize(token0, token1);
 
-        emit PairCreated(token0, token1, address(pair));
+        pair = address(_pair);
+        //store pair in the mapping->
+        getPair[token0][token1] = pair;
+        getPair[token1][token0] = pair;
+        
+        allPairs.push(pair);
+
+        emit PairCreated(token0, token1, pair);
         
     }
 

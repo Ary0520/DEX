@@ -9,7 +9,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IFactory {
     function getPair(address tokenA, address tokenB) external view returns (address);
-    function createPair(address tokenA, address tokenB) external returns (address);
+    function createPair(address tokenA, address tokenB) external returns (address pair);
 }
 interface IPair {
     function mint(address to) external returns (uint liquidity);
@@ -76,9 +76,14 @@ contract Router{
     function _addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin) internal returns(uint amountA, uint amountB){
 
         address pair = IFactory(factory).getPair(tokenA, tokenB);
+        // if(pair == address(0)){ //create that new pair
+        //     IFactory(factory).createPair(tokenA, tokenB);
+        // }
+
         if(pair == address(0)){ //create that new pair
-            IFactory(factory).createPair(tokenA, tokenB);
+            pair = IFactory(factory).createPair(tokenA, tokenB);
         }
+
         pair = IFactory(factory).getPair(tokenA, tokenB); //fetch again
 
         //fetch reserves->
@@ -266,6 +271,10 @@ contract Router{
     }
 
     function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external ensure(deadline) returns (uint[] memory amounts){
+
+        if (path.length < 2) {
+            revert Router__PairNotFound();
+        }
 
         amounts = getAmountsOut(amountIn, path);
 
