@@ -72,6 +72,13 @@ contract Router{
         amountB = (amountA * reserveB)/reserveA;
     }
 
+    function quote(uint amountA, uint reserveA, uint reserveB) public pure returns (uint amountB) {
+        if (reserveA == 0 || reserveB == 0) {
+            revert Router__PairNotFound();
+        }
+        amountB = (amountA * reserveB) / reserveA;
+    }
+
     //*internal* _addliquidity
     function _addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin) internal returns(uint amountA, uint amountB){
 
@@ -202,7 +209,7 @@ contract Router{
     }
 
     //computer for multiple pairs
-    function getAmountsOut(uint amountIn, address[] memory path) internal view returns(uint[] memory amounts){
+    function getAmountsOut(uint amountIn, address[] memory path) public view returns(uint[] memory amounts){
         amounts = new uint[](path.length);
 
         //first element is the input itself
