@@ -32,12 +32,15 @@ interface IPair {
 
 interface IILShieldVault {
     function depositFees(address pair, address feeToken, uint256 amount) external;
+    function updateExposure(address pair, uint256 newTotalExposureUSDC) external;
+    function getExposure(address pair) external view returns (uint256);
     function requestPayout(
         address pair,
         address user,
         uint256 netIL,
         uint256 userLiquidityValue,
-        uint256 maxCoverageBps
+        uint256 tierCeilingBps,
+        uint256 secondsInPool
     ) external returns (uint256);
 }
 
@@ -181,6 +184,10 @@ contract Router is ReentrancyGuard {
             pair, to, liquidity, depositValue
         );
 
+        // Increase exposure by this deposit's value
+        uint256 currentExposure = IILShieldVault(ilVault).getExposure(pair);
+        IILShieldVault(ilVault).updateExposure(pair, currentExposure + depositValue);
+
         emit LiquidityAdded(pair, to, liquidity);
     }
 
@@ -234,12 +241,32 @@ contract Router is ReentrancyGuard {
                     to,
                     netIL,
                     lpValue,
-                    maxCoverageBps
+                    maxCoverageBps,
+                    block.timestamp - positionTimestamp
                 );
             }
         }
 
+        // Decrease exposure by the proportional deposit value that just left
+        uint256 currentExposure = IILShieldVault(ilVault).getExposure(pair);
+        uint256 newExposure = currentExposure > proportionalDepositValue
+            ? currentExposure - proportionalDepositValue
+            : 0;
+        IILShieldVault(ilVault).updateExposure(pair, newExposure);
+
         emit LiquidityRemoved(pair, to, amountA, amountB, ilPayout);
+
+
+//## What this does
+//
+//LP adds liquidity ($1000 value)→ exposure goes from $0 → $1000
+//Another LP adds ($500 value) → exposure goes from $1000 → $1500
+//First LP removes 50% of their position ($500 proportional value) → exposure goes from $1500 → $1000
+//CoverageCurve now sees:
+//  vault reserve = $X
+//  total exposure = $1000
+//→ calculates real vault health ratio
+
     }
 
     // =========================================================
