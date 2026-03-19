@@ -85,10 +85,12 @@ contract Pair is ERC20 {
             revert Pair__AlreadyInitialized();
         }
 
+        if (_token0 == address(0) || _token1 == address(0)) revert Pair__InvalidAddress();
+        if (_token0 == _token1) revert Pair__InvalidAddress();
+
         token0 = _token0;
         token1 = _token1;
-        if (_token0 == _token1) revert Pair__InvalidAddress();
-        if (_token0 == address(0) || _token1 == address(0)) revert Pair__InvalidAddress();
+        
         isAlreadyInitialized = true;
     }
 
