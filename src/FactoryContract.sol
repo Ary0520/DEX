@@ -146,6 +146,8 @@ contract Factory {
         getPair[token1][token0] = pair;
         allPairs.push(pair);
 
+        _registeredPairs[pair] = true;
+
         // ── Auto-detect tier ──────────────────────────────────
         Tier detectedTier = _detectTier(token0, token1);
         pairTier[pair] = detectedTier;

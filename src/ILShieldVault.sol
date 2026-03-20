@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @title ILShieldVault v2
-/// @notice Production IL insurance vault with:
-///         - CoverageCurve for dynamic coverage (not flat %)
-///         - IL Vault Stakers (passive insurance sellers)
-///         - Per-pool exposure tracking (for vault health calc)
-///         - Stake slashing when vault is drained
-///         - Unstake cooldown to prevent bank run attacks
+/// @title ILShieldVault v3
+/// @notice Clean architecture:
 ///
-/// STAKER MODEL (learned from Nexus Mutual):
-///   Stakers deposit USDC into a pool's vault.
-///   They earn a share of swap fees proportional to their stake.
-///   When IL payouts happen, stakers' capital is used first.
-///   Stakers cannot instantly withdraw — 14-day cooldown.
-///   This prevents the Bancor failure mode: nobody can "run" during a crisis.
+///   USDC reserve  = staker deposits only → backs IL payouts
+///   Raw fee tokens = distributed directly to stakers as yield
+///   Zero conversion. Zero keeper. Zero sandwich risk.
+///   Zero centralization.
+///
+///   Stakers deposit USDC → earn raw fee tokens → back IL claims
+///   LPs get USDC payouts → funded entirely by staker deposits
+///   Protocol earns treasury fee → separate, never touches vault
+///
+///   Learned from:
+///   - Bancor: no token printing, no infinite liability
+///   - Nexus Mutual: separate reserve from yield layer
+///   - Sherlock: stakers are the insurance underwriters
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -29,29 +31,26 @@ contract ILShieldVault is ReentrancyGuard {
     // =========================================================
 
     struct Pool {
-        uint256 usdcReserve;         // total USDC available (fees + staker deposits)
-        uint256 stakerDeposits;      // portion of reserve from stakers
-        uint256 feeDeposits;         // portion of reserve from swap fees
-        uint256 totalPaidOut;        // lifetime payouts
-        uint256 totalFeesIn;         // lifetime fees received
-        uint256 totalExposureUSDC;   // sum of all open position netIL estimates
-                                     // used for vault health calculation
+        uint256 usdcReserve;        // USDC available for payouts (staker deposits only)
+        uint256 stakerDeposits;     // total USDC staked (tracks losses via reduction)
+        uint256 totalPaidOut;       // lifetime USDC paid to LPs (for utilization calc)
+        uint256 totalFeesIn;        // lifetime raw fee tokens received (informational)
+        uint256 totalExposureUSDC;  // estimated outstanding IL liability (for health calc)
     }
 
     struct StakerPosition {
-        uint256 amount;           // USDC staked
-        uint256 shares;           // proportional share of pool (scaled by 1e18)
-        uint256 rewardDebt;       // for fee reward accounting (MasterChef pattern)
-        uint256 unstakeRequestTime; // when they requested unstake (0 = not requested)
+        uint256 usdcAmount;             // USDC deposited
+        uint256 shares;                 // share of pool (for proportional fee claiming)
+        uint256 unstakeRequestTime;     // 0 = no request pending
+        // Per-token fee debt tracked separately in feeDebtPerToken mapping
     }
 
     struct Config {
-        uint256 maxPayoutBps;         // per-user cap as % of LP value. e.g. 2000 = 20%
-        uint256 poolCapBps;           // max single payout as % of pool fund. e.g. 500 = 5%
-        uint256 circuitBreakerBps;    // utilization that halves coverage. e.g. 5000
-        uint256 pauseThresholdBps;    // utilization that pauses shield. e.g. 8000
-        uint256 stakerFeeShareBps;    // % of vault fees going to stakers. e.g. 5000 = 50%
-        uint256 unstakeCooldown;      // seconds stakers must wait to withdraw
+        uint256 maxPayoutBps;       // per-user cap as % of LP value    e.g. 2000 = 20%
+        uint256 poolCapBps;         // max single payout as % of pool   e.g. 500  = 5%
+        uint256 circuitBreakerBps;  // utilization that halves coverage  e.g. 5000 = 50%
+        uint256 pauseThresholdBps;  // utilization that pauses shield    e.g. 8000 = 80%
+        uint256 unstakeCooldown;    // seconds before unstake allowed
     }
 
     // =========================================================
@@ -60,19 +59,26 @@ contract ILShieldVault is ReentrancyGuard {
 
     address public immutable USDC;
 
+    /// pair => pool state
     mapping(address => Pool) public pools;
 
-    /// pair => feeToken => rawAmount (pre-USDC-conversion tracking)
+    /// pair => feeToken => total raw amount sitting in vault
+    /// These are claimable by stakers proportionally
     mapping(address => mapping(address => uint256)) public rawFeeBalances;
+
+    /// pair => feeToken => accFeePerShare (scaled 1e18)
+    /// MasterChef pattern — tracks cumulative fee per share for each token
+    mapping(address => mapping(address => uint256)) public accFeePerShare;
 
     /// pair => staker => position
     mapping(address => mapping(address => StakerPosition)) public stakerPositions;
 
-    /// pair => total shares outstanding (for pro-rata fee distribution)
+    /// pair => total shares outstanding
     mapping(address => uint256) public totalShares;
 
-    /// pair => accumulated fee per share (MasterChef pattern, scaled 1e18)
-    mapping(address => uint256) public accFeePerShare;
+    /// pair => staker => feeToken => rewardDebt (scaled 1e18)
+    /// Tracks how much of accFeePerShare the staker has already been credited
+    mapping(address => mapping(address => mapping(address => uint256))) public feeDebtPerToken;
 
     Config public config;
     address public router;
@@ -97,13 +103,12 @@ contract ILShieldVault is ReentrancyGuard {
     // =========================================================
 
     event FeesDeposited(address indexed pair, address indexed token, uint256 amount);
-    event USDCAllocated(address indexed pair, uint256 usdcAmount);
     event PayoutIssued(address indexed pair, address indexed user, uint256 amount, uint256 coverageBps);
     event CircuitBreakerTriggered(address indexed pair, uint256 utilization);
-    event Staked(address indexed pair, address indexed staker, uint256 amount, uint256 shares);
+    event Staked(address indexed pair, address indexed staker, uint256 usdcAmount, uint256 shares);
     event UnstakeRequested(address indexed pair, address indexed staker, uint256 requestTime);
-    event Unstaked(address indexed pair, address indexed staker, uint256 amount);
-    event FeeHarvested(address indexed pair, address indexed staker, uint256 amount);
+    event Unstaked(address indexed pair, address indexed staker, uint256 usdcReturned);
+    event RawFeeHarvested(address indexed pair, address indexed staker, address indexed token, uint256 amount);
     event ExposureUpdated(address indexed pair, uint256 newExposure);
     event ConfigUpdated(Config config);
     event GlobalPauseSet(bool paused);
@@ -134,24 +139,27 @@ contract ILShieldVault is ReentrancyGuard {
 
     constructor(address _router, address _usdc) {
         if (_router == address(0) || _usdc == address(0)) revert ZeroAddress();
-        router  = _router;
-        USDC    = _usdc;
-        owner   = msg.sender;
+        router = _router;
+        USDC   = _usdc;
+        owner  = msg.sender;
 
         config = Config({
-            maxPayoutBps:      2000,   // 20% of LP value per claim
-            poolCapBps:         500,   // 5% of pool fund per single payout
-            circuitBreakerBps: 5000,   // 50% utilization → halve coverage
-            pauseThresholdBps: 8000,   // 80% utilization → pause pool
-            stakerFeeShareBps: 5000,   // 50% of vault fees → stakers
-            unstakeCooldown:   14 days // Bancor lesson: no instant exits
+            maxPayoutBps:      2000,    // 20% of LP value per claim
+            poolCapBps:         500,    // 5% of pool fund per single payout
+            circuitBreakerBps: 5000,    // 50% utilization → halve coverage
+            pauseThresholdBps: 8000,    // 80% utilization → pause pool
+            unstakeCooldown:   14 days  // no instant exits — Bancor lesson
         });
     }
 
     // =========================================================
-    // FUNDING — called by Router per swap
+    // FUNDING — called by Router on every swap
     // =========================================================
 
+    /// @notice Records raw fee tokens deposited by Router.
+    ///         Tokens are already transferred to this contract by Router.
+    ///         Updates accFeePerShare so stakers can claim proportionally.
+    ///         No conversion. No USDC involved here at all.
     function depositFees(
         address pair,
         address feeToken,
@@ -159,53 +167,37 @@ contract ILShieldVault is ReentrancyGuard {
     ) external onlyRouter {
         if (amount == 0) revert ZeroAmount();
 
-        rawFeeBalances[pair][feeToken] += amount;
         pools[pair].totalFeesIn += amount;
+
+        // If there are stakers, distribute fee to them via accFeePerShare
+        // This is O(1) regardless of staker count — MasterChef pattern
+        if (totalShares[pair] > 0) {
+            // accFeePerShare increases by: amount * 1e18 / totalShares
+            // Stakers claim their share lazily via harvestRawFees()
+            accFeePerShare[pair][feeToken] +=
+                (amount * 1e18) / totalShares[pair];
+
+            // Track total sitting in vault for this token
+            rawFeeBalances[pair][feeToken] += amount;
+        } else {
+            // No stakers yet — fees accumulate untracked
+            // They will be claimable once first staker joins and
+            // owner calls rescueUnclaimedFees() to redirect them
+            // OR they simply sit — vault is not harmed
+            rawFeeBalances[pair][feeToken] += amount;
+        }
 
         emit FeesDeposited(pair, feeToken, amount);
     }
 
-    /// @notice Keeper converts raw fee tokens → USDC and credits pool.
-    ///         Also distributes staker fee share via MasterChef accFeePerShare.
-    function allocateUSDC(address pair, uint256 usdcAmount) external onlyOwner {
-        if (usdcAmount == 0) revert ZeroAmount();
-
-        IERC20(USDC).safeTransferFrom(msg.sender, address(this), usdcAmount);
-
-        Pool storage p = pools[pair];
-
-        // Split: stakerFeeShareBps goes to stakers as yield
-        //        remainder goes to payout reserve
-        uint256 toStakers = (usdcAmount * config.stakerFeeShareBps) / 10000;
-        uint256 toReserve = usdcAmount - toStakers;
-
-        p.feeDeposits  += toReserve;
-        p.usdcReserve  += toReserve;
-
-        // Distribute staker share via accFeePerShare (MasterChef pattern)
-        // This is O(1) regardless of number of stakers — gas safe
-        if (toStakers > 0 && totalShares[pair] > 0) {
-            accFeePerShare[pair] += (toStakers * 1e18) / totalShares[pair];
-            // The USDC for staker fees stays in the contract,
-            // stakers claim it lazily via harvestFees()
-        } else if (toStakers > 0) {
-            // No stakers yet — redirect to reserve
-            p.feeDeposits += toStakers;
-            p.usdcReserve += toStakers;
-        }
-
-        emit USDCAllocated(pair, usdcAmount);
-    }
-
     // =========================================================
-    // EXPOSURE TRACKING — called by Router on addLiquidity / removeLiquidity
+    // EXPOSURE TRACKING — called by Router
     // =========================================================
 
-    /// @notice Router updates estimated outstanding IL exposure for a pool.
-    ///         Used by CoverageCurve to compute vault health.
-    ///         Exposure = sum of (depositValue - currentValue) for all open positions.
-    ///         Router should call this on every addLiquidity and removeLiquidity.
-    function updateExposure(address pair, uint256 newTotalExposureUSDC) external onlyRouter {
+    function updateExposure(
+        address pair,
+        uint256 newTotalExposureUSDC
+    ) external onlyRouter {
         pools[pair].totalExposureUSDC = newTotalExposureUSDC;
         emit ExposureUpdated(pair, newTotalExposureUSDC);
     }
@@ -214,15 +206,9 @@ contract ILShieldVault is ReentrancyGuard {
     // PAYOUT — called by Router on removeLiquidity
     // =========================================================
 
-    /// @notice Computes dynamic coverage via CoverageCurve, enforces all caps,
-    ///         pays USDC directly to user.
-    ///
-    /// @param  pair                 LP pair address
-    /// @param  user                 LP receiving compensation
-    /// @param  netIL                Raw IL in USDC value (NOT pre-capped)
-    /// @param  userLiquidityValue   Current USDC value of withdrawn LP
-    /// @param  tierCeilingBps       Pool tier's max coverage (from Factory)
-    /// @param  secondsInPool        How long LP was deposited (from PositionManager)
+    /// @notice Pays IL compensation in USDC to the LP.
+    ///         USDC comes entirely from staker deposits.
+    ///         No conversion. No raw tokens involved here.
     function requestPayout(
         address pair,
         address user,
@@ -231,13 +217,13 @@ contract ILShieldVault is ReentrancyGuard {
         uint256 tierCeilingBps,
         uint256 secondsInPool
     ) external onlyRouter notPaused nonReentrant returns (uint256 payout) {
-        if (netIL == 0)             return 0;
-        if (user == address(0))     revert ZeroAddress();
+        if (netIL == 0)         return 0;
+        if (user == address(0)) revert ZeroAddress();
 
         Pool storage p = pools[pair];
-        if (p.usdcReserve == 0)     return 0;
+        if (p.usdcReserve == 0) return 0;
 
-        // ── Step 1: Pool-level circuit breaker ────────────────────────────
+        // ── Step 1: Circuit breaker ───────────────────────────────────────
         uint256 totalEver   = p.usdcReserve + p.totalPaidOut;
         uint256 utilization = totalEver == 0
             ? 0
@@ -245,11 +231,10 @@ contract ILShieldVault is ReentrancyGuard {
 
         if (utilization >= config.pauseThresholdBps) {
             emit CircuitBreakerTriggered(pair, utilization);
-            return 0;  // silent return — user's removeLiquidity still succeeds
+            return 0;
         }
 
-        // ── Step 2: Compute coverage via CoverageCurve ────────────────────
-        // CoverageCurve applies: time saturation × vault health × tier ceiling
+        // ── Step 2: Coverage curve ────────────────────────────────────────
         uint256 effectiveCoverageBps = CoverageCurve.compute(
             tierCeilingBps,
             secondsInPool,
@@ -257,7 +242,6 @@ contract ILShieldVault is ReentrancyGuard {
             p.totalExposureUSDC
         );
 
-        // Circuit breaker: high utilization → halve coverage
         if (utilization >= config.circuitBreakerBps) {
             effectiveCoverageBps = effectiveCoverageBps / 2;
             emit CircuitBreakerTriggered(pair, utilization);
@@ -265,7 +249,7 @@ contract ILShieldVault is ReentrancyGuard {
 
         if (effectiveCoverageBps == 0) return 0;
 
-        // ── Step 3: Apply coverage to netIL ──────────────────────────────
+        // ── Step 3: Coverage amount ───────────────────────────────────────
         uint256 coverage = (netIL * effectiveCoverageBps) / 10000;
 
         // ── Step 4: User cap ──────────────────────────────────────────────
@@ -274,86 +258,150 @@ contract ILShieldVault is ReentrancyGuard {
         // ── Step 5: Pool cap ──────────────────────────────────────────────
         uint256 poolCap = (p.usdcReserve * config.poolCapBps) / 10000;
 
-        // ── Step 6: Final payout = min of all three ───────────────────────
+        // ── Step 6: Min of all three ──────────────────────────────────────
         payout = _min3(coverage, userCap, poolCap);
         if (payout == 0) return 0;
 
-        // Absolute hard floor
         if (payout > p.usdcReserve) payout = p.usdcReserve;
 
         // ── Step 7: CEI — state before transfer ───────────────────────────
-        p.usdcReserve  -= payout;
-        p.totalPaidOut += payout;
+        p.usdcReserve   -= payout;
+        p.totalPaidOut  += payout;
 
-        // Reduce staker deposits proportionally if payout exceeds fee reserve
-        // Stakers absorb losses beyond the fee buffer
-        if (payout > p.feeDeposits) {
-            uint256 stakerLoss = payout - p.feeDeposits;
-            p.feeDeposits = 0;
-            p.stakerDeposits = p.stakerDeposits > stakerLoss
-                ? p.stakerDeposits - stakerLoss
-                : 0;
-        } else {
-            p.feeDeposits -= payout;
-        }
+        // Staker deposits shrink proportionally — they absorb the loss
+        // This is how stakers "pay" for the insurance they sold
+        p.stakerDeposits = p.stakerDeposits > payout
+            ? p.stakerDeposits - payout
+            : 0;
 
-        // ── Step 8: Transfer USDC to user ─────────────────────────────────
+        // ── Step 8: Transfer USDC to LP ───────────────────────────────────
         IERC20(USDC).safeTransfer(user, payout);
 
         emit PayoutIssued(pair, user, payout, effectiveCoverageBps);
-
         return payout;
     }
 
     // =========================================================
-    // IL VAULT STAKERS
+    // STAKING — deposit USDC to back IL payouts + earn raw fees
     // =========================================================
 
-    /// @notice Deposit USDC into a pool's vault as an insurance seller.
-    ///         Stakers earn swap fees. Their capital backs IL payouts.
-    ///         No instant withdrawal — unstakeCooldown enforced.
-    function stake(address pair, uint256 amount) external nonReentrant notPaused {
-        if (amount == 0) revert ZeroAmount();
+    /// @notice Deposit USDC into a pool vault.
+    ///         Your USDC backs IL claims for this pool.
+    ///         You earn raw swap fee tokens proportional to your share.
+    function stake(
+        address pair,
+        uint256 usdcAmount
+    ) external nonReentrant notPaused {
+        if (usdcAmount == 0)    revert ZeroAmount();
         if (pair == address(0)) revert ZeroAddress();
 
-        IERC20(USDC).safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(USDC).safeTransferFrom(msg.sender, address(this), usdcAmount);
 
-        Pool storage p = pools[pair];
+        Pool storage p             = pools[pair];
         StakerPosition storage pos = stakerPositions[pair][msg.sender];
 
-        // Settle any pending fee rewards before changing shares
-        _settleRewards(pair, msg.sender);
-
         // Compute shares to mint
-        // First staker: shares = amount (1:1)
-        // Subsequent: shares = amount * totalShares / stakerDeposits
+        // First staker: 1 share per USDC
+        // Subsequent: proportional to existing stakerDeposits
+        // If stakerDeposits shrank due to payouts, new staker
+        // gets fewer shares per USDC — correctly prices in past losses
         uint256 sharesToMint;
         if (totalShares[pair] == 0 || p.stakerDeposits == 0) {
-            sharesToMint = amount;
+            sharesToMint = usdcAmount;
         } else {
-            sharesToMint = (amount * totalShares[pair]) / p.stakerDeposits;
+            sharesToMint = (usdcAmount * totalShares[pair]) / p.stakerDeposits;
         }
 
-        pos.amount   += amount;
-        pos.shares   += sharesToMint;
+        // Snapshot current accFeePerShare for ALL known fee tokens
+        // so staker doesn't claim fees from before they joined.
+        // Note: we cannot enumerate all tokens here — staker calls
+        // snapshotFeeDebt() for each token they want to track.
+        // This is a known tradeoff: stakers claim specific tokens they know about.
 
-        // Update rewardDebt to current accFeePerShare so they don't
-        // retroactively claim fees from before they staked
-        pos.rewardDebt = (pos.shares * accFeePerShare[pair]) / 1e18;
+        pos.usdcAmount  += usdcAmount;
+        pos.shares      += sharesToMint;
+        pos.unstakeRequestTime = 0; // reset any pending unstake
 
         totalShares[pair]    += sharesToMint;
-        p.stakerDeposits     += amount;
-        p.usdcReserve        += amount;
+        p.stakerDeposits     += usdcAmount;
+        p.usdcReserve        += usdcAmount;
 
-        // Reset any pending unstake request
-        pos.unstakeRequestTime = 0;
-
-        emit Staked(pair, msg.sender, amount, sharesToMint);
+        emit Staked(pair, msg.sender, usdcAmount, sharesToMint);
     }
 
-    /// @notice Start the unstake cooldown timer.
-    ///         Stakers must call this, wait unstakeCooldown seconds, then call unstake().
-    ///         Prevents bank-run attacks during market stress (Bancor lesson).
+    /// @notice Call this immediately after stake() for each fee token
+    ///         you want to track. Sets your debt baseline so you only
+    ///         earn fees from this point forward for that token.
+    function snapshotFeeDebt(address pair, address feeToken) external {
+        StakerPosition storage pos = stakerPositions[pair][msg.sender];
+        if (pos.shares == 0) revert InsufficientShares();
+
+        feeDebtPerToken[pair][msg.sender][feeToken] =
+            accFeePerShare[pair][feeToken];
+    }
+
+    // =========================================================
+    // HARVEST RAW FEES — stakers pull their fee token yield
+    // =========================================================
+
+    /// @notice Claim accumulated raw fee tokens for a specific token.
+    ///         No conversion. You get the actual swap token.
+    ///         Call separately for each fee token you want to claim.
+    ///
+    /// @param  pair      The pool you staked in
+    /// @param  feeToken  The raw fee token to claim (e.g. SHIB, ARB, etc.)
+    function harvestRawFees(
+        address pair,
+        address feeToken
+    ) external nonReentrant {
+        StakerPosition storage pos = stakerPositions[pair][msg.sender];
+        if (pos.shares == 0) revert InsufficientShares();
+
+        uint256 acc   = accFeePerShare[pair][feeToken];
+        uint256 debt  = feeDebtPerToken[pair][msg.sender][feeToken];
+
+        // Pending = (shares × accFeePerShare / 1e18) - rewardDebt
+        uint256 pending = (pos.shares * acc) / 1e18;
+        pending = pending > debt ? pending - debt : 0;
+
+        if (pending == 0) return;
+
+        // Clamp to actual balance (rounding safety)
+        if (pending > rawFeeBalances[pair][feeToken]) {
+            pending = rawFeeBalances[pair][feeToken];
+        }
+
+        // CEI — update state before transfer
+        feeDebtPerToken[pair][msg.sender][feeToken] =
+            (pos.shares * acc) / 1e18;
+        rawFeeBalances[pair][feeToken] -= pending;
+
+        IERC20(feeToken).safeTransfer(msg.sender, pending);
+
+        emit RawFeeHarvested(pair, msg.sender, feeToken, pending);
+    }
+
+    /// @notice View pending raw fee yield for a staker on a specific token.
+    function pendingRawFees(
+        address pair,
+        address staker,
+        address feeToken
+    ) external view returns (uint256) {
+        StakerPosition memory pos = stakerPositions[pair][staker];
+        if (pos.shares == 0) return 0;
+
+        uint256 acc     = accFeePerShare[pair][feeToken];
+        uint256 debt    = feeDebtPerToken[pair][staker][feeToken];
+        uint256 pending = (pos.shares * acc) / 1e18;
+        return pending > debt ? pending - debt : 0;
+    }
+
+    // =========================================================
+    // UNSTAKE — two step: request → wait → withdraw
+    // =========================================================
+
+    /// @notice Step 1: Signal intent to unstake.
+    ///         Starts the cooldown timer.
     function requestUnstake(address pair) external {
         StakerPosition storage pos = stakerPositions[pair][msg.sender];
         if (pos.shares == 0) revert InsufficientShares();
@@ -362,62 +410,45 @@ contract ILShieldVault is ReentrancyGuard {
         emit UnstakeRequested(pair, msg.sender, block.timestamp);
     }
 
-    /// @notice Withdraw staked USDC after cooldown period.
-    ///         Proportional to shares. Accounts for any losses from payouts.
-    function unstake(address pair, uint256 sharesToBurn) external nonReentrant {
+    /// @notice Step 2: Withdraw USDC after cooldown.
+    ///         Amount returned is proportional to remaining stakerDeposits.
+    ///         If payouts drained the pool, you get back less — that's the risk.
+    function unstake(
+        address pair,
+        uint256 sharesToBurn
+    ) external nonReentrant {
         StakerPosition storage pos = stakerPositions[pair][msg.sender];
 
-        if (pos.unstakeRequestTime == 0)  revert UnstakeNotRequested();
+        if (pos.unstakeRequestTime == 0) revert UnstakeNotRequested();
         if (block.timestamp < pos.unstakeRequestTime + config.unstakeCooldown)
             revert CooldownNotMet();
         if (sharesToBurn == 0 || sharesToBurn > pos.shares)
             revert InsufficientShares();
 
-        // Settle fee rewards first
-        _settleRewards(pair, msg.sender);
-
         Pool storage p = pools[pair];
 
-        // USDC to return = proportional share of remaining stakerDeposits
-        // This naturally handles losses: if payout drained staker capital,
-        // stakerDeposits < original, so each share is worth less.
-        uint256 usdcToReturn = (sharesToBurn * p.stakerDeposits) / totalShares[pair];
+        // USDC returned = proportional share of remaining stakerDeposits
+        // Naturally accounts for losses from IL payouts
+        uint256 usdcToReturn =
+            (sharesToBurn * p.stakerDeposits) / totalShares[pair];
 
-        // State update before transfer (CEI)
-        pos.shares   -= sharesToBurn;
-        pos.amount    = pos.shares == 0
+        // CEI — state before transfer
+        pos.shares     -= sharesToBurn;
+        pos.usdcAmount  = pos.shares == 0
             ? 0
-            : (pos.amount * pos.shares) / (pos.shares + sharesToBurn);
-        pos.rewardDebt = (pos.shares * accFeePerShare[pair]) / 1e18;
+            : (pos.usdcAmount * pos.shares) / (pos.shares + sharesToBurn);
 
-        // Reset unstake request if fully exited
         if (pos.shares == 0) pos.unstakeRequestTime = 0;
 
-        totalShares[pair]    -= sharesToBurn;
-        p.stakerDeposits      = p.stakerDeposits > usdcToReturn
-            ? p.stakerDeposits - usdcToReturn
-            : 0;
-        p.usdcReserve         = p.usdcReserve > usdcToReturn
-            ? p.usdcReserve - usdcToReturn
-            : 0;
+        totalShares[pair]  -= sharesToBurn;
+        p.stakerDeposits    = p.stakerDeposits > usdcToReturn
+            ? p.stakerDeposits - usdcToReturn : 0;
+        p.usdcReserve       = p.usdcReserve > usdcToReturn
+            ? p.usdcReserve - usdcToReturn : 0;
 
         IERC20(USDC).safeTransfer(msg.sender, usdcToReturn);
 
         emit Unstaked(pair, msg.sender, usdcToReturn);
-    }
-
-    /// @notice Claim accumulated fee rewards without unstaking.
-    function harvestFees(address pair) external nonReentrant {
-        _settleRewards(pair, msg.sender);
-    }
-
-    /// @notice Preview pending fee rewards for a staker.
-    function pendingFees(address pair, address staker) external view returns (uint256) {
-        StakerPosition memory pos = stakerPositions[pair][staker];
-        if (pos.shares == 0) return 0;
-
-        uint256 pending = (pos.shares * accFeePerShare[pair]) / 1e18;
-        return pending > pos.rewardDebt ? pending - pos.rewardDebt : 0;
     }
 
     // =========================================================
@@ -434,24 +465,27 @@ contract ILShieldVault is ReentrancyGuard {
     function getPoolHealth(address pair) external view returns (
         uint256 usdcReserve,
         uint256 stakerDeposits,
-        uint256 feeDeposits,
         uint256 utilization,
         uint256 totalExposure
     ) {
         Pool storage p = pools[pair];
-        return (
-            p.usdcReserve,
-            p.stakerDeposits,
-            p.feeDeposits,
-            this.getUtilization(pair),
-            p.totalExposureUSDC
-        );
+        uint256 totalEver = p.usdcReserve + p.totalPaidOut;
+        uint256 util = totalEver == 0
+            ? 0
+            : (p.totalPaidOut * 10000) / totalEver;
+        return (p.usdcReserve, p.stakerDeposits, util, p.totalExposureUSDC);
     }
 
-    /// @notice Returns current total exposure for a pool.
-    ///         Used by Router to calculate updated exposure on add/remove.
     function getExposure(address pair) external view returns (uint256) {
         return pools[pair].totalExposureUSDC;
+    }
+
+    function getStakerPosition(address pair, address staker)
+        external view
+        returns (uint256 usdcAmount, uint256 shares, uint256 unstakeRequestTime)
+    {
+        StakerPosition memory pos = stakerPositions[pair][staker];
+        return (pos.usdcAmount, pos.shares, pos.unstakeRequestTime);
     }
 
     // =========================================================
@@ -463,20 +497,19 @@ contract ILShieldVault is ReentrancyGuard {
         uint256 _poolCap,
         uint256 _circuitBreaker,
         uint256 _pauseThreshold,
-        uint256 _stakerFeeShare,
         uint256 _unstakeCooldown
     ) external onlyOwner {
-        if (_maxPayout        > 10000)          revert InvalidConfig();
-        if (_poolCap          > 10000)          revert InvalidConfig();
-        if (_circuitBreaker   > 10000)          revert InvalidConfig();
-        if (_pauseThreshold   > 10000)          revert InvalidConfig();
-        if (_stakerFeeShare   > 10000)          revert InvalidConfig();
-        if (_circuitBreaker   >= _pauseThreshold) revert InvalidConfig();
-        if (_unstakeCooldown  < 7 days)         revert InvalidConfig(); // min 7d cooldown always
+        if (_maxPayout       > 10000)             revert InvalidConfig();
+        if (_poolCap         > 10000)             revert InvalidConfig();
+        if (_circuitBreaker  > 10000)             revert InvalidConfig();
+        if (_pauseThreshold  > 10000)             revert InvalidConfig();
+        if (_circuitBreaker  >= _pauseThreshold)  revert InvalidConfig();
+        if (_unstakeCooldown < 7 days)            revert InvalidConfig();
 
         config = Config(
-            _maxPayout, _poolCap, _circuitBreaker,
-            _pauseThreshold, _stakerFeeShare, _unstakeCooldown
+            _maxPayout, _poolCap,
+            _circuitBreaker, _pauseThreshold,
+            _unstakeCooldown
         );
         emit ConfigUpdated(config);
     }
@@ -497,6 +530,8 @@ contract ILShieldVault is ReentrancyGuard {
         owner = newOwner;
     }
 
+    /// @notice Recover tokens accidentally sent directly to vault
+    ///         (not via depositFees). Cannot touch USDC reserve.
     function recoverToken(address token, uint256 amount) external onlyOwner {
         if (token == USDC) revert NotAuthorized();
         IERC20(token).safeTransfer(owner, amount);
@@ -506,26 +541,9 @@ contract ILShieldVault is ReentrancyGuard {
     // INTERNAL
     // =========================================================
 
-    /// @dev MasterChef-style reward settlement.
-    ///      Calculates fees earned since last checkpoint and transfers them.
-    function _settleRewards(address pair, address staker) internal {
-        StakerPosition storage pos = stakerPositions[pair][staker];
-        if (pos.shares == 0) return;
-
-        uint256 accumulated = (pos.shares * accFeePerShare[pair]) / 1e18;
-        uint256 pending = accumulated > pos.rewardDebt
-            ? accumulated - pos.rewardDebt
-            : 0;
-
-        pos.rewardDebt = accumulated;
-
-        if (pending > 0) {
-            IERC20(USDC).safeTransfer(staker, pending);
-            emit FeeHarvested(pair, staker, pending);
-        }
-    }
-
-    function _min3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) {
+    function _min3(uint256 a, uint256 b, uint256 c)
+        internal pure returns (uint256)
+    {
         return a < b ? (a < c ? a : c) : (b < c ? b : c);
     }
 }

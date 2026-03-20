@@ -257,15 +257,15 @@ contract Router is ReentrancyGuard {
         emit LiquidityRemoved(pair, to, amountA, amountB, ilPayout);
 
 
-//## What this does
-//
-//LP adds liquidity ($1000 value)→ exposure goes from $0 → $1000
-//Another LP adds ($500 value) → exposure goes from $1000 → $1500
-//First LP removes 50% of their position ($500 proportional value) → exposure goes from $1500 → $1000
-//CoverageCurve now sees:
-//  vault reserve = $X
-//  total exposure = $1000
-//→ calculates real vault health ratio
+        /////What this does////
+        
+        //LP adds liquidity ($1000 value)→ exposure goes from $0 → $1000
+        //Another LP adds ($500 value) → exposure goes from $1000 → $1500
+        //First LP removes 50% of their position ($500 proportional value) → exposure goes from $1500 → $1000
+        //CoverageCurve now sees:
+        //  vault reserve = $X
+        //  total exposure = $1000
+        //→ calculates real vault health ratio
 
     }
 

@@ -61,7 +61,7 @@ library CoverageCurve {
     /// @param  tierCeilingBps      Max coverage for this pool tier (e.g. 7500 = 75%)
     /// @param  secondsInPool       How long the LP has been in the pool
     /// @param  vaultUSDCReserve    Current USDC in this pool's vault
-    /// @param  totalExposureBps    Total outstanding IL liability estimate for this pool
+    /// @param  totalExposureUSDC    Total outstanding IL liability estimate for this pool
     ///                             (sum of all open positions' netIL estimates)
     ///                             Pass 0 if not tracked → defaults to 100% health
     ///

@@ -108,7 +108,7 @@ contract TWAPOracle {
             revert TooSoon();
         }
 
-        (,, uint32 pairTimestamp) = IPairTWAP(pair).getReserves();
+        // (,, uint32 pairTimestamp) = IPairTWAP(pair).getReserves();
 
         observations[pair] = Observation({
             price0Cumulative: IPairTWAP(pair).price0CumulativeLast(),
