@@ -1,70 +1,106 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+/// @dev transfer() always returns false — tests SafeERC20 rejection
+contract ReturnFalseToken {
+    string  public name     = "ReturnFalse";
+    string  public symbol   = "RFT";
+    uint8   public decimals = 18;
+    uint256 public totalSupply;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
 
-/// @notice Token whose transfer() always returns false
-contract ReturnFalseToken is ERC20 {
-    constructor() ERC20("ReturnFalse", "RFT") {}
-
-    function mint(address to, uint amount) external {
-        _mint(to, amount);
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+        totalSupply   += amount;
     }
-
-    function transfer(address, uint) public pure override returns (bool) {
-        return false; // always lies
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        return true;
     }
-
-    function transferFrom(address, address, uint) public pure override returns (bool) {
+    function transfer(address, uint256) external pure returns (bool) {
+        return false;
+    }
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to]   += amount;
         return false;
     }
 }
 
-/// @notice Token whose transfer() reverts with no data (like USDT on mainnet)
-contract NoReturnToken is ERC20 {
-    constructor() ERC20("NoReturn", "NRT") {}
+/// @dev transfer() emits no return value — like early USDT
+contract NoReturnToken {
+    string  public name     = "NoReturn";
+    string  public symbol   = "NRT";
+    uint8   public decimals = 18;
+    uint256 public totalSupply;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
 
-    function mint(address to, uint amount) external {
-        _mint(to, amount);
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+        totalSupply   += amount;
     }
-
-    function transfer(address, uint) public pure override returns (bool) {
-        revert(); // no error message, no return value
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        return true;
     }
-
-    function transferFrom(address, address, uint) public pure override returns (bool) {
-        revert();
+    function transfer(address to, uint256 amount) external {
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to]         += amount;
+    }
+    function transferFrom(address from, address to, uint256 amount) external {
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to]   += amount;
     }
 }
 
-/// @notice Reentrant token — calls back into pair.swap() during transferFrom
-interface IPairMinimal {
-    function swap(uint, uint, address) external;
-}
+/// @dev Attempts reentrancy on transfer — tests lock modifier
+contract ReentrantToken {
+    string  public name     = "Reentrant";
+    string  public symbol   = "RET";
+    uint8   public decimals = 18;
+    uint256 public totalSupply;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
 
-contract ReentrantToken is ERC20 {
-    address public pair;
-    bool public attacking;
+    address public target;
+    bytes   public attackData;
+    bool    public armed;
 
-    constructor() ERC20("Reentrant", "RNT") {}
-
-    function mint(address to, uint amount) external {
-        _mint(to, amount);
+    function arm(address _target, bytes calldata _data) external {
+        target     = _target;
+        attackData = _data;
+        armed      = true;
     }
+    function disarm() external { armed = false; }
 
-    function setPair(address _pair) external {
-        pair = _pair;
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+        totalSupply   += amount;
     }
-
-    function transferFrom(address from, address to, uint amount) public override returns (bool) {
-        // do the real transfer first
-        super.transferFrom(from, to, amount);
-
-        // then try to reenter swap during the transfer
-        if (!attacking && pair != address(0)) {
-            attacking = true;
-            try IPairMinimal(pair).swap(0, 1, address(this)) {} catch {}
-            attacking = false;
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        return true;
+    }
+    function transfer(address to, uint256 amount) external returns (bool) {
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to]         += amount;
+        if (armed) {
+            armed = false; // prevent infinite loop
+            target.call(attackData);
+        }
+        return true;
+    }
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to]   += amount;
+        if (armed) {
+            armed = false;
+            target.call(attackData);
         }
         return true;
     }

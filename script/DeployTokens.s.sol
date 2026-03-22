@@ -10,11 +10,11 @@ contract DeployTokens is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        MockERC20 weth = new MockERC20("Wrapped Ether", "WETH");
-        MockERC20 usdc = new MockERC20("USD Coin", "USDC");
-        MockERC20 dai  = new MockERC20("Dai Stablecoin", "DAI");
-        MockERC20 wbtc = new MockERC20("Wrapped Bitcoin", "WBTC");
-        MockERC20 arb  = new MockERC20("Arbitrum", "ARB");
+        MockERC20 weth = new MockERC20("Wrapped Ether",   "WETH", 18);
+        MockERC20 usdc = new MockERC20("USD Coin",        "USDC", 6);
+        MockERC20 dai  = new MockERC20("Dai Stablecoin",  "DAI",  18);
+        MockERC20 wbtc = new MockERC20("Wrapped Bitcoin", "WBTC", 8);
+        MockERC20 arb  = new MockERC20("Arbitrum",        "ARB",  18);
 
         vm.stopBroadcast();
 
