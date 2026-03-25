@@ -64,7 +64,6 @@ contract SystemTest is Test {
             address(usdc)
         );
         vault.setFeeConverter(address(feeConverter));
-        oracle.setUpdater(keeper, true);
         vm.stopPrank();
 
         pair = factory.createPair(address(tokenA), address(tokenB));
@@ -107,7 +106,7 @@ contract SystemTest is Test {
     function _bootstrapOracle() internal {
         vm.prank(keeper);
         oracle.update(pair);
-        vm.warp(block.timestamp + 6 minutes);
+        vm.warp(block.timestamp + 31 minutes);
         Pair(pair).sync();
     }
 

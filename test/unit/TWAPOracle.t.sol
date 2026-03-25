@@ -474,7 +474,9 @@ contract TWAPOracleTest is Test {
         assertGt(ts2, ts1, "pair2 should have later observation");
 
         // Advance more time and read both
-        vm.warp(block.timestamp + 10 minutes);
+        // pair has been waiting 31 + 30 = 61 min (> 30 min window) ✅
+        // pair2 needs to wait at least 30 min from its update
+        vm.warp(block.timestamp + 30 minutes);
         Pair(pair).sync();
         Pair(pair2).sync();
 

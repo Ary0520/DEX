@@ -68,7 +68,6 @@ contract FeeConverterFuzz is Test {
         );
 
         vault.setFeeConverter(address(converter));
-        oracle.setUpdater(keeper, true);
         vm.stopPrank();
 
         pair = factory.createPair(address(feeToken), address(usdc));
@@ -82,18 +81,18 @@ contract FeeConverterFuzz is Test {
         Pair(pair).mint(owner);
         vm.stopPrank();
 
-        // Bootstrap TWAP: two snapshots 6 min apart
+        // Bootstrap TWAP: two snapshots 2 hours apart
         vm.warp(T0 + 1);
         Pair(pair).sync();
         vm.prank(keeper);
         oracle.update(pair);
 
-        vm.warp(T0 + 1 + 6 minutes);
+        vm.warp(T0 + 1 + 2 hours);
         Pair(pair).sync();
         vm.prank(keeper);
         oracle.update(pair);
 
-        vm.warp(T0 + 1 + 12 minutes);
+        vm.warp(T0 + 1 + 3 hours);
         Pair(pair).sync();
 
         // Seed vault with USDC so allocateUSDC can pull from converter
@@ -161,7 +160,7 @@ contract FeeConverterFuzz is Test {
     function testFuzz_cooldownRemaining_neverExceedsCooldown(uint256 warpTime) public {
         warpTime = bound(warpTime, 0, 2 hours);
 
-        vm.warp(T0 + 1 + 12 minutes + warpTime);
+        vm.warp(T0 + 1 + 3 hours + warpTime);
         uint256 remaining = converter.cooldownRemaining(pair, address(feeToken));
         assertLe(remaining, converter.CONVERSION_COOLDOWN());
     }

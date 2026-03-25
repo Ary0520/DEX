@@ -206,7 +206,7 @@ contract FeeConverterTest is Test {
         // through the cooldown guard. The Router re-deposits a tiny vault-fee
         // slice back into rawFeeBalances during the swap, so the balance is
         // non-zero but below MIN_CONVERSION_USDC — expect BelowMinimum.
-        vm.warp(block.timestamp + 31 minutes);
+        vm.warp(block.timestamp + 2 hours);
         Pair(pair).sync();
         vm.prank(keeper);
         oracle.update(pair);
