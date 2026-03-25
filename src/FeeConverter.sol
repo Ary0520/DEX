@@ -9,39 +9,41 @@ pragma solidity ^0.8.20;
 ///
 /// 1. TWAP-BASED MINIMUM OUTPUT
 ///    Every conversion enforces a minimum USDC output derived from the
-///    30-minute TWAP price. Attacker cannot manipulate spot price to get
-///    a bad conversion rate — TWAP moves slowly (minimum 5 min per update,
-///    30 min window). Making the TWAP move enough to profit requires holding
-///    a manipulated position for 30+ minutes, costing more than any gain.
+///    TWAP price. Attacker cannot manipulate spot price to get a bad
+///    conversion rate — TWAP moves slowly (minimum 30 min window).
+///    Making the TWAP move enough to profit requires holding a manipulated
+///    position for 30+ minutes, costing more than any gain.
 ///
-/// 2. ADDITIONAL SLIPPAGE CAP (1%)
+/// 2. LAZY TWAP AUTO-UPDATE
+///    If TWAP is unavailable, FeeConverter automatically calls oracle.update()
+///    before conversion. This implements "lazy TWAP" — no dedicated keeper needed.
+///    Callers are incentivized to update (they get 0.1% bonus worth $10-50,
+///    update costs ~$0.50 gas). System self-maintains through user activity.
+///
+/// 3. ADDITIONAL SLIPPAGE CAP (1%)
 ///    Even with a valid TWAP, max 1% deviation is allowed.
 ///    Conversion reverts if actual output < TWAP price * 99%.
 ///
-/// 3. MINIMUM THRESHOLD
+/// 4. MINIMUM THRESHOLD
 ///    Conversions below $10 equivalent are rejected.
 ///    Prevents spam, dust attacks, and accFeePerShare precision loss.
 ///
-/// 4. CALLER BONUS CAPPED AT 0.1% WITH HARD CAP
+/// 5. CALLER BONUS CAPPED AT 0.1% WITH HARD CAP
 ///    Caller earns 0.1% of converted USDC as incentive.
 ///    Hard cap: max 50 USDC per call regardless of conversion size.
 ///    Prevents whale gaming: convert $1M, earn $500 bonus.
 ///    At 0.1%, the protocol keeps 99.9% of all conversions.
 ///
-/// 5. PER-TOKEN COOLDOWN
+/// 6. PER-TOKEN COOLDOWN
 ///    Each (pair, token) combination can only be converted once per hour.
 ///    Prevents rapid repeated conversions on the same token.
 ///
-/// 6. ONLY REGISTERED PAIRS
+/// 7. ONLY REGISTERED PAIRS
 ///    Pair must exist in Factory. Prevents fake pair attacks.
 ///
-/// 7. REENTRANCY PROTECTED
+/// 8. REENTRANCY PROTECTED
 ///    ReentrancyGuard on convert(). Router swap is called mid-function
 ///    but vault state is updated after — CEI enforced end-to-end.
-///
-/// 8. TWAP STALENESS CHECK
-///    Conversion reverts if TWAP is stale (>2 hours old).
-///    Oracle must be actively maintained for conversions to work.
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -49,6 +51,14 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 interface IFactory {
     function getPair(address tokenA, address tokenB) external view returns (address);
+    /// @dev Returns (vaultFeeBps, treasuryFeeBps, lpFeeBps, maxCoverageBps)
+    ///      Matches Factory.getPairConfig() exactly — no ABI change needed.
+    function getPairConfig(address pair) external view returns (
+        uint256 vaultFeeBps,
+        uint256 treasuryFeeBps,
+        uint256 lpFeeBps,
+        uint256 maxCoverageBps
+    );
 }
 
 interface IILShieldVaultExtended {
@@ -69,6 +79,7 @@ interface IRouter {
 
 interface ITWAPOracle {
     function getTWAPForTokens(address pair, address tokenA) external view returns (uint256);
+    function update(address pair) external;
 }
 
 interface IVaultAdmin {
@@ -92,7 +103,7 @@ contract FeeConverter is ReentrancyGuard {
     ///      Prevents whale gaming large conversions for outsized bonus
     uint256 public constant MAX_CALLER_BONUS    = 50e6;
 
-   /// @dev Minimum raw token value to convert (in USDC terms, 6 decimals)
+    /// @dev Minimum raw token value to convert (in USDC terms, 6 decimals)
     ///      Prevents dust spam and precision loss in accFeePerShare
     uint256 public constant MIN_CONVERSION_USDC = 10e6;  // $10 minimum
 
@@ -181,11 +192,13 @@ contract FeeConverter is ReentrancyGuard {
     /// Flow:
     ///   1. Validate pair is registered, token is not USDC, cooldown passed
     ///   2. Read raw balance from vault
-    ///   3. Get TWAP price → compute minimum USDC output
-    ///   4. Pull raw tokens from vault (vault approves this contract)
-    ///   5. Swap via Router with minOut enforced
-    ///   6. Send caller bonus
-    ///   7. Send remaining USDC to vault via allocateUSDC()
+    ///   3. Fetch Router fee config so minOut is computed against the net
+    ///      amount that actually reaches the AMM pool (not the gross rawAmount)
+    ///   4. Get TWAP price → compute minimum USDC output on net amount
+    ///   5. Pull raw tokens from vault
+    ///   6. Swap via Router with minOut enforced
+    ///   7. Send caller bonus
+    ///   8. Send remaining USDC to vault via allocateUSDC()
     function convert(
         address pair,
         address feeToken
@@ -194,8 +207,8 @@ contract FeeConverter is ReentrancyGuard {
 
         if (feeToken == USDC) revert TokenIsUSDC();
 
-        // Pair must be registered in Factory
-        // We verify by checking token0/token1 exist — fake pairs won't be in Factory
+        // Pair must be registered in Factory.
+        // We verify by checking token0/token1 exist — fake pairs won't be in Factory.
         address verifyPair = IFactory(factory).getPair(
             _getPairToken0(pair),
             _getPairToken1(pair)
@@ -210,11 +223,32 @@ contract FeeConverter is ReentrancyGuard {
         uint256 rawAmount = IILShieldVaultExtended(vault).rawFeeBalances(pair, feeToken);
         if (rawAmount == 0) revert NothingToConvert();
 
-        // ── TWAP price check ──────────────────────────────────────────────
-        // Get USDC/feeToken pair address for TWAP lookup
+        // ── Compute net amount that actually reaches the AMM ──────────────
+        //
+        // The Router deducts vaultFeeBps + treasuryFeeBps from amountIn
+        // BEFORE passing the remainder to the pool for the swap:
+        //
+        //   amountForSwap = amountIn - vaultFee - treasuryFee
+        //
+        // If we compute minUsdcOut against the full rawAmount the Router will
+        // almost always revert (or silently burn real slippage headroom) because
+        // the actual swap output is derived from the smaller amountForSwap.
+        //
+        // We read the live fee config for the *feeToken/USDC* pair (the one
+        // the Router will swap through) so we use the correct tier's fees.
+        // This is a pure view call — no state change, no trust assumption.
         address usdcFeeTokenPair = IFactory(factory).getPair(feeToken, USDC);
         if (usdcFeeTokenPair == address(0)) revert TWAPUnavailable();
 
+        (uint256 vaultFeeBps, uint256 treasuryFeeBps,,) =
+            IFactory(factory).getPairConfig(usdcFeeTokenPair);
+
+        // Net tokens that will actually enter the AMM for the swap.
+        // Router uses the same arithmetic: fee = amountIn * bps / 10000.
+        uint256 routerFee     = (rawAmount * (vaultFeeBps + treasuryFeeBps)) / BPS_DENOMINATOR;
+        uint256 amountForSwap = rawAmount - routerFee;
+
+        // ── TWAP price check ──────────────────────────────────────────────
         uint256 twapPrice;
         try ITWAPOracle(twapOracle).getTWAPForTokens(
             usdcFeeTokenPair,
@@ -223,28 +257,48 @@ contract FeeConverter is ReentrancyGuard {
             if (price == 0) revert TWAPUnavailable();
             twapPrice = price;
         } catch {
-            revert TWAPUnavailable();
+            // TWAP failed — try updating the oracle first
+            // This implements lazy TWAP: callers auto-update when needed
+            try ITWAPOracle(twapOracle).update(usdcFeeTokenPair) {
+                // Update succeeded, try getting TWAP again
+                try ITWAPOracle(twapOracle).getTWAPForTokens(
+                    usdcFeeTokenPair,
+                    feeToken
+                ) returns (uint256 price) {
+                    if (price == 0) revert TWAPUnavailable();
+                    twapPrice = price;
+                } catch {
+                    revert TWAPUnavailable();
+                }
+            } catch {
+                // Update failed (probably too soon), TWAP still unavailable
+                revert TWAPUnavailable();
+            }
         }
 
-        // Expected USDC output at TWAP price
-        // twapPrice is: how much USDC per 1 feeToken (18 decimal fixed point)
-        uint256 expectedUsdc = (rawAmount * twapPrice) / 1e18;
+        // Expected USDC output at TWAP price, applied to the NET swap amount.
+        // twapPrice = how much USDC (6 dec) per 1 feeToken (18 dec), expressed
+        // as an 18-decimal fixed-point number (as returned by TWAPOracle).
+        uint256 expectedUsdc = (amountForSwap * twapPrice) / 1e18;
 
-        // Reject if expected output below minimum ($10)
+        // Reject if expected output is below the $10 minimum.
         if (expectedUsdc < MIN_CONVERSION_USDC) revert BelowMinimum();
 
-        // Minimum output with slippage: 99% of TWAP value
+        // Minimum acceptable output: 99% of TWAP value on the net amount.
+        // The 1% buffer now covers only genuine market slippage, not protocol
+        // fees (which are already stripped out of amountForSwap above).
         uint256 minUsdcOut = (expectedUsdc * (BPS_DENOMINATOR - MAX_SLIPPAGE_BPS))
             / BPS_DENOMINATOR;
 
-        // ── State update: record conversion timestamp ─────────────────────
-        // Done BEFORE external calls (CEI pattern)
+        // ── State update: record conversion timestamp (CEI) ───────────────
         lastConversion[pair][feeToken] = block.timestamp;
 
-        
+        // ── Pull raw fee tokens from vault ────────────────────────────────
         IILShieldVaultExtended(vault).withdrawRawFees(pair, feeToken, rawAmount);
 
-        // ── Approve Router to spend feeToken ─────────────────────────────
+        // ── Approve Router to spend the full rawAmount ────────────────────
+        // The Router itself splits rawAmount into (amountForSwap + fees);
+        // we must approve the gross amount so it can pull all three pieces.
         address routerAddr = IVaultAdmin(vault).router();
         IERC20(feeToken).forceApprove(routerAddr, rawAmount);
 
@@ -264,7 +318,8 @@ contract FeeConverter is ReentrancyGuard {
         ) returns (uint256[] memory) {
             // success
         } catch {
-            // Swap failed — revert the timestamp update and return tokens
+            // Swap failed — roll back timestamp so cooldown is not consumed
+            // and return the tokens to the vault so they are not lost.
             lastConversion[pair][feeToken] = 0;
             IERC20(feeToken).forceApprove(routerAddr, 0);
             IERC20(feeToken).safeTransfer(vault, rawAmount);
@@ -273,13 +328,13 @@ contract FeeConverter is ReentrancyGuard {
 
         uint256 usdcReceived = IERC20(USDC).balanceOf(address(this)) - usdcBefore;
 
-        // Final sanity check — ensure we actually got at least minUsdcOut
+        // Final sanity check — actual output must meet the floor we computed.
         if (usdcReceived < minUsdcOut) revert SlippageExceeded();
 
         // ── Caller bonus ──────────────────────────────────────────────────
         uint256 callerBonus = (usdcReceived * CALLER_BONUS_BPS) / BPS_DENOMINATOR;
 
-        // Hard cap: never pay more than 50 USDC bonus per call
+        // Hard cap: never pay more than 50 USDC bonus per call.
         if (callerBonus > MAX_CALLER_BONUS) {
             callerBonus = MAX_CALLER_BONUS;
         }
@@ -292,7 +347,6 @@ contract FeeConverter is ReentrancyGuard {
         }
 
         // ── Credit vault via allocateUSDC ─────────────────────────────────
-        // Approve vault to pull USDC from this contract
         IERC20(USDC).forceApprove(vault, usdcForVault);
         IILShieldVaultExtended(vault).allocateUSDC(pair, usdcForVault);
 
@@ -304,7 +358,9 @@ contract FeeConverter is ReentrancyGuard {
     // =========================================================
 
     /// @notice Preview what a conversion would yield right now.
-    ///         Returns 0 if conditions not met (cooldown, no TWAP, below min).
+    ///         Returns zeros + false if conditions are not met.
+    ///         Accounts for Router fee deduction so expectedUsdc matches
+    ///         what convert() will actually receive from the swap.
     function previewConversion(
         address pair,
         address feeToken
@@ -325,11 +381,19 @@ contract FeeConverter is ReentrancyGuard {
         address usdcFeeTokenPair = IFactory(factory).getPair(feeToken, USDC);
         if (usdcFeeTokenPair == address(0)) return (rawAmount, 0, 0, 0, false);
 
+        // Mirror the same fee-stripping logic used in convert() so the
+        // preview reflects the real net amount entering the AMM.
+        (uint256 vaultFeeBps, uint256 treasuryFeeBps,,) =
+            IFactory(factory).getPairConfig(usdcFeeTokenPair);
+
+        uint256 routerFee     = (rawAmount * (vaultFeeBps + treasuryFeeBps)) / BPS_DENOMINATOR;
+        uint256 amountForSwap = rawAmount - routerFee;
+
         try ITWAPOracle(twapOracle).getTWAPForTokens(usdcFeeTokenPair, feeToken)
             returns (uint256 price)
         {
             if (price == 0) return (rawAmount, 0, 0, 0, false);
-            expectedUsdc = (rawAmount * price) / 1e18;
+            expectedUsdc = (amountForSwap * price) / 1e18;
         } catch {
             return (rawAmount, 0, 0, 0, false);
         }
@@ -356,8 +420,6 @@ contract FeeConverter is ReentrancyGuard {
     // =========================================================
     // ADMIN
     // =========================================================
-
-    
 
     function transferOwnership(address newOwner) external {
         if (msg.sender != owner) revert NotOwner();

@@ -3,8 +3,24 @@ pragma solidity ^0.8.20;
 
 /// @title TWAPOracle
 /// @notice Manipulation-resistant TWAP using cumulative price snapshots.
-///         Fixes: permissioned updates, minimum observation window,
-///                staleness guard, bidirectional price support.
+///         
+/// LAZY TWAP DESIGN:
+///         - PERMISSIONLESS: Anyone can call update() to snapshot prices
+///         - RATE-LIMITED: Updates only allowed every 2 hours (prevents spam)
+///         - SELF-MAINTAINING: FeeConverter callers auto-update when needed
+///         - NO KEEPER REQUIRED: System maintains itself through user activity
+///         
+/// HOW IT WORKS:
+///         1. Someone calls update() to take initial snapshot
+///         2. TWAP window grows automatically: 30 min → 2 hours → 8 hours
+///         3. Longer window = more manipulation-resistant
+///         4. When window reaches 2 hours, anyone can update again
+///         5. FeeConverter callers are incentivized to update (0.1% bonus)
+///         
+/// SECURITY:
+///         - Minimum 30-minute window enforced (prevents short-term manipulation)
+///         - Maximum 8-hour staleness (rejects very old prices)
+///         - Cumulative prices from Pair contract (can't be manipulated in single block)
 
 interface IPairTWAP {
     function price0CumulativeLast() external view returns (uint256);
@@ -19,14 +35,17 @@ contract TWAPOracle {
     // CONSTANTS
     // =========================================================
 
-    /// @notice Minimum time between snapshots — prevents single-block manipulation
-    uint256 public constant MIN_UPDATE_INTERVAL = 5 minutes;
+    /// @notice Minimum TWAP window before price can be used — prevents manipulation
+    ///         TWAP must be at least 30 minutes old to be considered safe
+    uint256 public constant MIN_TWAP_WINDOW = 30 minutes;
 
-    /// @notice TWAP window used for price calculation
-    uint256 public constant TWAP_WINDOW = 30 minutes;
+    /// @notice Maximum time between updates before oracle auto-updates
+    ///         After 2 hours, callers should update the oracle
+    uint256 public constant MAX_UPDATE_WINDOW = 2 hours;
 
     /// @notice Price is considered stale after this duration
-    uint256 public constant MAX_STALENESS = 2 hours;
+    ///         Increased from 2 hours to 8 hours for lazy TWAP resilience
+    uint256 public constant MAX_STALENESS = 8 hours;
 
     // =========================================================
     // STRUCTS
@@ -45,9 +64,6 @@ contract TWAPOracle {
     /// pair => snapshot
     mapping(address => Observation) public observations;
 
-    /// Authorized updaters (keeper bots, router, etc.)
-    mapping(address => bool) public isUpdater;
-
     address public owner;
 
     // =========================================================
@@ -55,27 +71,21 @@ contract TWAPOracle {
     // =========================================================
 
     error NotAuthorized();
-    error TooSoon();
+    error UpdateTooSoon();
     error NoObservation();
     error StalePrice();
-    error InsufficientTimeElapsed();
+    error TWAPWindowTooSmall();
     error ZeroAddress();
 
     // =========================================================
     // EVENTS
     // =========================================================
 
-    event OracleUpdated(address indexed pair, uint256 timestamp);
-    event UpdaterSet(address indexed updater, bool authorized);
+    event OracleUpdated(address indexed pair, uint256 timestamp, address indexed updater);
 
     // =========================================================
     // MODIFIERS
     // =========================================================
-
-    modifier onlyUpdater() {
-        if (!isUpdater[msg.sender] && msg.sender != owner) revert NotAuthorized();
-        _;
-    }
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotAuthorized();
@@ -88,7 +98,6 @@ contract TWAPOracle {
 
     constructor() {
         owner = msg.sender;
-        isUpdater[msg.sender] = true;
     }
 
     // =========================================================
@@ -96,19 +105,26 @@ contract TWAPOracle {
     // =========================================================
 
     /// @notice Snapshots the current cumulative prices for a pair.
-    ///         Must be called by authorized keeper at regular intervals.
-    function update(address pair) external onlyUpdater {
+    ///         PERMISSIONLESS — anyone can call this to update the oracle.
+    ///         Rate-limited to prevent spam: can only update if window >= MAX_UPDATE_WINDOW (2 hours).
+    ///         
+    /// @dev    Lazy TWAP design: updates are only needed every 2 hours.
+    ///         Between updates, the TWAP window grows automatically (30 min → 2 hours).
+    ///         Longer windows = more manipulation-resistant.
+    ///         
+    ///         FeeConverter callers are incentivized to call this when needed
+    ///         (they get 0.1% bonus, costs ~$0.50 gas to update).
+    function update(address pair) external {
         Observation storage obs = observations[pair];
 
-        // Rate-limit updates to prevent micro-snapshot manipulation
-        if (
-            obs.timestamp != 0 &&
-            block.timestamp < obs.timestamp + MIN_UPDATE_INTERVAL
-        ) {
-            revert TooSoon();
+        // Rate-limit: only allow update if window is >= 2 hours OR first update
+        // This prevents spam while allowing the system to self-maintain
+        if (obs.timestamp != 0) {
+            uint256 windowSize = block.timestamp - obs.timestamp;
+            if (windowSize < MAX_UPDATE_WINDOW) {
+                revert UpdateTooSoon();
+            }
         }
-
-        // (,, uint32 pairTimestamp) = IPairTWAP(pair).getReserves();
 
         observations[pair] = Observation({
             price0Cumulative: IPairTWAP(pair).price0CumulativeLast(),
@@ -116,7 +132,7 @@ contract TWAPOracle {
             timestamp: block.timestamp
         });
 
-        emit OracleUpdated(pair, block.timestamp);
+        emit OracleUpdated(pair, block.timestamp, msg.sender);
     }
 
     // =========================================================
@@ -160,11 +176,14 @@ contract TWAPOracle {
 
         if (obs.timestamp == 0) revert NoObservation();
 
-        // Staleness guard
-        if (block.timestamp > obs.timestamp + MAX_STALENESS) revert StalePrice();
-
         uint256 timeElapsed = block.timestamp - obs.timestamp;
-        if (timeElapsed < MIN_UPDATE_INTERVAL) revert InsufficientTimeElapsed();
+
+        // Minimum window check: TWAP must be at least 30 minutes old
+        // This prevents manipulation via short-term price swings
+        if (timeElapsed < MIN_TWAP_WINDOW) revert TWAPWindowTooSmall();
+
+        // Staleness guard: reject if observation is too old (>8 hours)
+        if (timeElapsed > MAX_STALENESS) revert StalePrice();
 
         uint256 currentCumulative = IPairTWAP(pair).price0CumulativeLast();
 
@@ -177,10 +196,14 @@ contract TWAPOracle {
         Observation memory obs = observations[pair];
 
         if (obs.timestamp == 0) revert NoObservation();
-        if (block.timestamp > obs.timestamp + MAX_STALENESS) revert StalePrice();
 
         uint256 timeElapsed = block.timestamp - obs.timestamp;
-        if (timeElapsed < MIN_UPDATE_INTERVAL) revert InsufficientTimeElapsed();
+
+        // Minimum window check
+        if (timeElapsed < MIN_TWAP_WINDOW) revert TWAPWindowTooSmall();
+
+        // Staleness guard
+        if (timeElapsed > MAX_STALENESS) revert StalePrice();
 
         uint256 currentCumulative = IPairTWAP(pair).price1CumulativeLast();
         price = (currentCumulative - obs.price1Cumulative) / timeElapsed;
@@ -189,12 +212,6 @@ contract TWAPOracle {
     // =========================================================
     // ADMIN
     // =========================================================
-
-    function setUpdater(address updater, bool authorized) external onlyOwner {
-        if (updater == address(0)) revert ZeroAddress();
-        isUpdater[updater] = authorized;
-        emit UpdaterSet(updater, authorized);
-    }
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();

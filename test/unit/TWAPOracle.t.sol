@@ -53,18 +53,18 @@ contract TWAPOracleTest is Test {
     // HELPERS
     // -------------------------------------------------------
 
-    /// @dev Take first snapshot, advance past MIN_UPDATE_INTERVAL, ready to read
+    /// @dev Take first snapshot, advance past MIN_TWAP_WINDOW, ready to read
     function _bootstrapOracle() internal {
         vm.prank(owner);
         oracle.update(pair);
-        // Advance past MIN_UPDATE_INTERVAL so reads don't revert InsufficientTimeElapsed
-        vm.warp(block.timestamp + 6 minutes);
+        // Advance past MIN_TWAP_WINDOW so reads don't revert TWAPWindowTooSmall
+        vm.warp(block.timestamp + 31 minutes);
     }
 
     /// @dev Bootstrap + advance past MAX_STALENESS
     function _bootstrapAndStale() internal {
         _bootstrapOracle();
-        vm.warp(block.timestamp + 3 hours);
+        vm.warp(block.timestamp + 9 hours);
     }
 
     // -------------------------------------------------------
@@ -75,48 +75,22 @@ contract TWAPOracleTest is Test {
         assertEq(oracle.owner(), owner, "owner should be deployer");
     }
 
-    function test_constructor_ownerIsAutoUpdater() public view {
-        assertTrue(oracle.isUpdater(owner), "owner should be auto-authorized as updater");
-    }
+    // -------------------------------------------------------
+    // UPDATE - PERMISSIONLESS
+    // -------------------------------------------------------
 
-    // -------------------------------------------------------
-    // UPDATE - ACCESS CONTROL
-    // -------------------------------------------------------
+    function test_update_anyoneCanUpdate() public {
+        vm.prank(stranger);
+        oracle.update(pair);
+        (,, uint256 ts) = oracle.observations(pair);
+        assertEq(ts, block.timestamp, "observation timestamp wrong");
+    }
 
     function test_update_ownerCanUpdate() public {
         vm.prank(owner);
         oracle.update(pair);
         (,, uint256 ts) = oracle.observations(pair);
         assertEq(ts, block.timestamp, "observation timestamp wrong");
-    }
-
-    function test_update_authorizedKeeperCanUpdate() public {
-        vm.prank(owner);
-        oracle.setUpdater(keeper, true);
-
-        vm.prank(keeper);
-        oracle.update(pair);
-
-        (,, uint256 ts) = oracle.observations(pair);
-        assertEq(ts, block.timestamp, "keeper update failed");
-    }
-
-    function test_update_unauthorizedStranger_reverts() public {
-        vm.prank(stranger);
-        vm.expectRevert(TWAPOracle.NotAuthorized.selector);
-        oracle.update(pair);
-    }
-
-    function test_update_deauthorizedKeeper_reverts() public {
-        vm.prank(owner);
-        oracle.setUpdater(keeper, true);
-
-        vm.prank(owner);
-        oracle.setUpdater(keeper, false);
-
-        vm.prank(keeper);
-        vm.expectRevert(TWAPOracle.NotAuthorized.selector);
-        oracle.update(pair);
     }
 
     // -------------------------------------------------------
@@ -135,34 +109,34 @@ contract TWAPOracleTest is Test {
         vm.prank(owner);
         oracle.update(pair);
 
-        // Advance only 4 minutes — still within 5 min MIN_UPDATE_INTERVAL
-        vm.warp(block.timestamp + 4 minutes);
+        // Advance only 1 hour — still within 2 hour MAX_UPDATE_WINDOW
+        vm.warp(block.timestamp + 1 hours);
 
         vm.prank(owner);
-        vm.expectRevert(TWAPOracle.TooSoon.selector);
+        vm.expectRevert(TWAPOracle.UpdateTooSoon.selector);
         oracle.update(pair);
     }
 
     function test_update_exactlyAtInterval_succeeds() public {
-    vm.prank(owner);
-    oracle.update(pair);
+        vm.prank(owner);
+        oracle.update(pair);
 
-    // At exactly MIN_UPDATE_INTERVAL: condition is block.timestamp < obs + interval
-    // 301 < 1 + 300 = 301 < 301 = false — so update succeeds
-    vm.warp(block.timestamp + 5 minutes);
+        // At exactly MAX_UPDATE_WINDOW: condition is windowSize < MAX_UPDATE_WINDOW
+        // 7200 < 7200 = false — so update succeeds
+        vm.warp(block.timestamp + 2 hours);
 
-    vm.prank(owner);
-    oracle.update(pair);
+        vm.prank(owner);
+        oracle.update(pair);
 
-    (,, uint256 ts) = oracle.observations(pair);
-    assertEq(ts, block.timestamp, "update at exact interval boundary should succeed");
-}
+        (,, uint256 ts) = oracle.observations(pair);
+        assertEq(ts, block.timestamp, "update at exact interval boundary should succeed");
+    }
 
     function test_update_afterInterval_succeeds() public {
         vm.prank(owner);
         oracle.update(pair);
 
-        vm.warp(block.timestamp + 5 minutes + 1);
+        vm.warp(block.timestamp + 2 hours + 1);
 
         vm.prank(owner);
         oracle.update(pair);
@@ -186,7 +160,7 @@ contract TWAPOracleTest is Test {
 
     function test_update_emitsEvent() public {
         vm.expectEmit(true, false, false, true);
-        emit TWAPOracle.OracleUpdated(pair, block.timestamp);
+        emit TWAPOracle.OracleUpdated(pair, block.timestamp, owner);
 
         vm.prank(owner);
         oracle.update(pair);
@@ -197,7 +171,7 @@ contract TWAPOracleTest is Test {
         oracle.update(pair);
         (,, uint256 ts1) = oracle.observations(pair);
 
-        vm.warp(block.timestamp + 10 minutes);
+        vm.warp(block.timestamp + 3 hours);
         Pair(pair).sync();
 
         vm.prank(owner);
@@ -232,36 +206,36 @@ contract TWAPOracleTest is Test {
     }
 
     // -------------------------------------------------------
-    // GET TWAP - INSUFFICIENT TIME ELAPSED
+    // GET TWAP - MINIMUM WINDOW
     // -------------------------------------------------------
 
-    function test_getTWAP_insufficientTimeElapsed_reverts() public {
+    function test_getTWAP_windowTooSmall_reverts() public {
         vm.prank(owner);
         oracle.update(pair);
-        // No time advance — timeElapsed = 0 < MIN_UPDATE_INTERVAL
-        vm.expectRevert(TWAPOracle.InsufficientTimeElapsed.selector);
+        // No time advance — timeElapsed = 0 < MIN_TWAP_WINDOW
+        vm.expectRevert(TWAPOracle.TWAPWindowTooSmall.selector);
         oracle.getTWAP(pair);
     }
 
-    function test_getTWAP_justBelowMinInterval_reverts() public {
+    function test_getTWAP_justBelowMinWindow_reverts() public {
         vm.prank(owner);
         oracle.update(pair);
 
-        vm.warp(block.timestamp + 4 minutes + 59);
+        vm.warp(block.timestamp + 29 minutes + 59);
 
-        vm.expectRevert(TWAPOracle.InsufficientTimeElapsed.selector);
+        vm.expectRevert(TWAPOracle.TWAPWindowTooSmall.selector);
         oracle.getTWAP(pair);
     }
 
-    function test_getTWAP_atMinInterval_succeeds() public {
+    function test_getTWAP_atMinWindow_succeeds() public {
         vm.prank(owner);
         oracle.update(pair);
 
         // Advance time and accumulate prices in pair
-        vm.warp(block.timestamp + 5 minutes);
+        vm.warp(block.timestamp + 30 minutes);
         Pair(pair).sync();
 
-        // Should succeed now — timeElapsed >= MIN_UPDATE_INTERVAL
+        // Should succeed now — timeElapsed >= MIN_TWAP_WINDOW
         uint256 price = oracle.getTWAP(pair);
         assertGt(price, 0, "TWAP should be non-zero");
     }
@@ -272,42 +246,42 @@ contract TWAPOracleTest is Test {
 
     function test_getTWAP_stalePrice_reverts() public {
         _bootstrapOracle();
-        // Advance past MAX_STALENESS (2 hours)
-        vm.warp(block.timestamp + 2 hours + 1);
+        // Advance past MAX_STALENESS (8 hours)
+        vm.warp(block.timestamp + 8 hours + 1);
         vm.expectRevert(TWAPOracle.StalePrice.selector);
         oracle.getTWAP(pair);
     }
 
     function test_getTWAP_withinStaleness_succeeds() public {
-    // Take fresh snapshot, then read within MAX_STALENESS window
-    vm.prank(owner);
-    oracle.update(pair);
-    // obs.timestamp = 1
-    // Advance to exactly obs.timestamp + MAX_STALENESS (not beyond)
-    vm.warp(1 + 2 hours);
-    Pair(pair).sync();
-    // condition: block.timestamp > obs.timestamp + MAX_STALENESS
-    // 7201 > 1 + 7200 = 7201 > 7201 = false — should NOT revert
-    uint256 price = oracle.getTWAP(pair);
-    assertGt(price, 0, "price at exactly staleness boundary should succeed");
-}
+        // Take fresh snapshot, then read within MAX_STALENESS window
+        vm.prank(owner);
+        oracle.update(pair);
+        // obs.timestamp = 1
+        // Advance to exactly obs.timestamp + MAX_STALENESS (not beyond)
+        vm.warp(1 + 8 hours);
+        Pair(pair).sync();
+        // condition: timeElapsed > MAX_STALENESS
+        // 28800 > 28800 = false — should NOT revert
+        uint256 price = oracle.getTWAP(pair);
+        assertGt(price, 0, "price at exactly staleness boundary should succeed");
+    }
 
     function test_getTWAP_justBeyondStaleness_reverts() public {
         _bootstrapOracle();
-        vm.warp(block.timestamp + 2 hours + 1);
+        vm.warp(block.timestamp + 8 hours + 1);
         vm.expectRevert(TWAPOracle.StalePrice.selector);
         oracle.getTWAP(pair);
     }
 
     function test_getTWAP_refreshAfterStale_succeeds() public {
         _bootstrapOracle();
-        vm.warp(block.timestamp + 2 hours + 1);
+        vm.warp(block.timestamp + 8 hours + 1);
 
         // Re-update the oracle
         vm.prank(owner);
         oracle.update(pair);
 
-        vm.warp(block.timestamp + 6 minutes);
+        vm.warp(block.timestamp + 31 minutes);
         Pair(pair).sync();
 
         uint256 price = oracle.getTWAP(pair);
@@ -417,66 +391,6 @@ contract TWAPOracleTest is Test {
 }
 
     // -------------------------------------------------------
-    // SET UPDATER
-    // -------------------------------------------------------
-
-    function test_setUpdater_ownerCanAuthorize() public {
-        assertFalse(oracle.isUpdater(keeper), "keeper should not be updater initially");
-
-        vm.prank(owner);
-        oracle.setUpdater(keeper, true);
-
-        assertTrue(oracle.isUpdater(keeper), "keeper should be authorized");
-    }
-
-    function test_setUpdater_ownerCanDeauthorize() public {
-        vm.prank(owner);
-        oracle.setUpdater(keeper, true);
-
-        vm.prank(owner);
-        oracle.setUpdater(keeper, false);
-
-        assertFalse(oracle.isUpdater(keeper), "keeper should be deauthorized");
-    }
-
-    function test_setUpdater_nonOwner_reverts() public {
-        vm.prank(stranger);
-        vm.expectRevert(TWAPOracle.NotAuthorized.selector);
-        oracle.setUpdater(keeper, true);
-    }
-
-    function test_setUpdater_zeroAddress_reverts() public {
-        vm.prank(owner);
-        vm.expectRevert(TWAPOracle.ZeroAddress.selector);
-        oracle.setUpdater(address(0), true);
-    }
-
-    function test_setUpdater_emitsEvent() public {
-        vm.expectEmit(true, false, false, true);
-        emit TWAPOracle.UpdaterSet(keeper, true);
-
-        vm.prank(owner);
-        oracle.setUpdater(keeper, true);
-    }
-
-    function test_setUpdater_ownerStillWorksAfterSelfRemoval() public {
-        // Owner removes themselves from isUpdater mapping
-        // But onlyUpdater checks msg.sender == owner separately
-        // So owner should still be able to update
-        vm.prank(owner);
-        oracle.setUpdater(owner, false);
-
-        assertFalse(oracle.isUpdater(owner), "owner removed from mapping");
-
-        // Owner should still pass onlyUpdater because of the || msg.sender == owner check
-        vm.prank(owner);
-        oracle.update(pair);
-
-        (,, uint256 ts) = oracle.observations(pair);
-        assertGt(ts, 0, "owner should still be able to update after self-removal from mapping");
-    }
-
-    // -------------------------------------------------------
     // TRANSFER OWNERSHIP
     // -------------------------------------------------------
 
@@ -493,7 +407,7 @@ contract TWAPOracleTest is Test {
         // Old owner can no longer call onlyOwner functions
         vm.prank(owner);
         vm.expectRevert(TWAPOracle.NotAuthorized.selector);
-        oracle.setUpdater(stranger, true);
+        oracle.transferOwnership(stranger);
     }
 
     function test_transferOwnership_newOwnerHasAccess() public {
@@ -501,8 +415,8 @@ contract TWAPOracleTest is Test {
         oracle.transferOwnership(keeper);
 
         vm.prank(keeper);
-        oracle.setUpdater(stranger, true);
-        assertTrue(oracle.isUpdater(stranger), "new owner should have admin access");
+        oracle.transferOwnership(stranger);
+        assertEq(oracle.owner(), stranger, "new owner should have admin access");
     }
 
     function test_transferOwnership_zeroAddress_reverts() public {
@@ -521,7 +435,7 @@ contract TWAPOracleTest is Test {
         vm.prank(owner);
         oracle.transferOwnership(keeper);
 
-        // New owner passes onlyUpdater because msg.sender == owner
+        // New owner can update (anyone can, but testing ownership transfer)
         vm.prank(keeper);
         oracle.update(pair);
 
@@ -548,7 +462,7 @@ contract TWAPOracleTest is Test {
         vm.prank(owner);
         oracle.update(pair);
 
-        vm.warp(block.timestamp + 6 minutes);
+        vm.warp(block.timestamp + 31 minutes);
 
         vm.prank(owner);
         oracle.update(pair2);
@@ -559,8 +473,6 @@ contract TWAPOracleTest is Test {
 
         assertGt(ts2, ts1, "pair2 should have later observation");
 
-        // pair should still revert InsufficientTimeElapsed since only 6 min passed since update
-        // but pair2 was just updated so also InsufficientTimeElapsed
         // Advance more time and read both
         vm.warp(block.timestamp + 10 minutes);
         Pair(pair).sync();
@@ -578,7 +490,7 @@ contract TWAPOracleTest is Test {
     // -------------------------------------------------------
 
     function testFuzz_update_rateLimitAlwaysEnforced(uint256 waitSeconds) public {
-        waitSeconds = bound(waitSeconds, 0, 5 minutes - 1);
+        waitSeconds = bound(waitSeconds, 0, 2 hours - 1);
 
         vm.prank(owner);
         oracle.update(pair);
@@ -586,12 +498,12 @@ contract TWAPOracleTest is Test {
         vm.warp(block.timestamp + waitSeconds);
 
         vm.prank(owner);
-        vm.expectRevert(TWAPOracle.TooSoon.selector);
+        vm.expectRevert(TWAPOracle.UpdateTooSoon.selector);
         oracle.update(pair);
     }
 
     function testFuzz_getTWAP_alwaysNonZeroWithValidState(uint256 elapsed) public {
-        elapsed = bound(elapsed, 5 minutes, 2 hours);
+        elapsed = bound(elapsed, 30 minutes, 8 hours);
 
         vm.prank(owner);
         oracle.update(pair);
@@ -608,7 +520,7 @@ contract TWAPOracleTest is Test {
         extra = bound(extra, 1, 30 days);
 
         _bootstrapOracle();
-        vm.warp(block.timestamp + 2 hours + extra);
+        vm.warp(block.timestamp + 8 hours + extra);
 
         vm.expectRevert(TWAPOracle.StalePrice.selector);
         oracle.getTWAP(pair);

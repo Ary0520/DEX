@@ -20,6 +20,14 @@ contract PairHandler is Test {
 
     address actor = makeAddr("actor");
 
+    // Tracking for LP supply invariant
+    uint256 public totalLPMinted;
+    uint256 public totalLPBurned;
+
+    // Tracking for cumulative price invariant
+    uint256 public initialPrice0Cumulative;
+    uint256 public initialPrice1Cumulative;
+
     constructor() {
         MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
         factory = new Factory();
@@ -72,6 +80,14 @@ contract PairHandler is Test {
 
         vm.prank(actor);
         pair.approve(address(router), type(uint256).max);
+
+        // Snapshot initial cumulative prices after seeding
+        initialPrice0Cumulative = pair.price0CumulativeLast();
+        initialPrice1Cumulative = pair.price1CumulativeLast();
+
+        // Account for the initial mint (totalSupply - MINIMUM_LIQUIDITY locked at address(1))
+        totalLPMinted = pair.totalSupply();
+        totalLPBurned = 0;
     }
 
     function swapAForB(uint256 amountIn) public {
@@ -124,7 +140,9 @@ contract PairHandler is Test {
         try router.addLiquidity(
             address(token0), address(token1),
             amt, amt, 0, 0, actor, type(uint256).max
-        ) {} catch {}
+        ) returns (uint256, uint256, uint256 liq) {
+            totalLPMinted += liq;
+        } catch {}
     }
 
     function removeLiquidity(uint256 fraction) public {
@@ -142,7 +160,9 @@ contract PairHandler is Test {
         try router.removeLiquidity(
             address(token0), address(token1),
             toRemove, 0, 0, actor, type(uint256).max
-        ) {} catch {}
+        ) returns (uint256, uint256) {
+            totalLPBurned += toRemove;
+        } catch {}
     }
 }
 
@@ -198,8 +218,25 @@ contract PairInvariantTest is Test {
     function invariant_kNeverDecreases() public view {
         (uint112 r0, uint112 r1,) = pair.getReserves();
         uint256 k = uint256(r0) * uint256(r1);
-        // We don't store kBefore here since invariant tests run after each call
-        // But k > 0 is the key property
         assertGt(k, 0, "k dropped to zero");
+    }
+
+    /// Cumulative prices must never decrease (they are monotonically non-decreasing)
+    function invariant_cumulativePricesNeverDecrease() public view {
+        uint256 p0 = pair.price0CumulativeLast();
+        uint256 p1 = pair.price1CumulativeLast();
+        // Both must be >= their initial seeded values (> 0 after first sync)
+        // The handler only ever adds liquidity/swaps — never resets state
+        assertGe(p0, handler.initialPrice0Cumulative(), "price0Cumulative decreased");
+        assertGe(p1, handler.initialPrice1Cumulative(), "price1Cumulative decreased");
+    }
+
+    /// LP total supply must equal minted minus burned (tracked by handler)
+    function invariant_lpSupplyMatchesMintedMinusBurned() public view {
+        assertEq(
+            pair.totalSupply(),
+            handler.totalLPMinted() - handler.totalLPBurned(),
+            "LP supply inconsistent with mint/burn accounting"
+        );
     }
 }

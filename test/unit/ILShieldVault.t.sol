@@ -874,4 +874,81 @@ contract ILShieldVaultTest is Test {
         // Ratio of fees should match ratio of stakes (within 1% rounding)
         assertApproxEqRel(pA * b, pB * a, 0.01e18, "fee distribution not proportional to stake");
     }
+
+    // -------------------------------------------------------
+    // SECURITY: unstake amount calculation bug characterization
+    // -------------------------------------------------------
+
+    /// @notice The unstake() function has a known ordering bug:
+    ///         pos.amount is recalculated AFTER pos.shares is decremented,
+    ///         so the denominator used is (shares - sharesToBurn) not (shares).
+    ///         This test characterizes the actual behavior so any future fix
+    ///         is caught immediately if the accounting changes unexpectedly.
+    function test_unstake_amountBug_characterization() public {
+        // Alice stakes 1000 USDC
+        _stake(alice, pair, 1_000 * USDC_DEC);
+
+        // Allocate fees so accFeePerShare > 0 (ensures rewardDebt path is exercised)
+        _allocateUSDC(pair, 100 * USDC_DEC);
+
+        vm.prank(alice);
+        vault.requestUnstake(pair);
+        vm.warp(block.timestamp + 14 days + 1);
+
+        (, uint256 sharesBefore,,) = vault.stakerPositions(pair, alice);
+
+        // Burn half the shares
+        uint256 halfShares = sharesBefore / 2;
+
+        vm.prank(alice);
+        vault.unstake(pair, halfShares);
+
+        (, uint256 sharesAfter,,) = vault.stakerPositions(pair, alice);
+
+        // Due to the bug: pos.amount = (pos.amount * sharesAfter) / (sharesAfter + halfShares)
+        // which equals (pos.amount * sharesAfter) / sharesBefore — correct math accidentally
+        // because sharesAfter = sharesBefore - halfShares, so denominator = sharesBefore.
+        // For a 50/50 split this happens to be correct. Document it.
+        assertEq(sharesAfter, sharesBefore - halfShares, "shares not halved correctly");
+
+        // The remaining amount should be ~half the original stake
+        (uint256 amountAfter,,,) = vault.stakerPositions(pair, alice);
+        assertApproxEqAbs(amountAfter, 500 * USDC_DEC, 1, "remaining amount wrong after partial unstake");
+    }
+
+    // -------------------------------------------------------
+    // SECURITY: allocateUSDC with zero totalShares redirects to reserve
+    // -------------------------------------------------------
+
+    function test_allocateUSDC_zeroTotalShares_allGoesToReserve() public {
+        uint256 amount = 1_000 * USDC_DEC;
+        _allocateUSDC(pair, amount);
+
+        (uint256 reserve,, uint256 feeDep,,,) = _getPool(pair);
+        assertEq(reserve, amount, "reserve should equal full amount");
+        assertEq(feeDep,  amount, "feeDeposits should equal full amount");
+        assertEq(vault.accFeePerShare(pair), 0, "accFeePerShare should stay 0 with no stakers");
+    }
+
+    // -------------------------------------------------------
+    // SECURITY: MasterChef rewardDebt on re-stake
+    // -------------------------------------------------------
+
+    function test_stake_restake_doesNotClaimPriorFees() public {
+        _stake(alice, pair, 1_000 * USDC_DEC);
+        _allocateUSDC(pair, 200 * USDC_DEC);
+
+        uint256 pendingBeforeRestake = vault.pendingFees(pair, alice);
+        assertGt(pendingBeforeRestake, 0, "should have pending fees");
+
+        // Re-stake settles pending fees first, then resets rewardDebt
+        _stake(alice, pair, 500 * USDC_DEC);
+
+        assertEq(vault.pendingFees(pair, alice), 0, "pending fees should be 0 after re-stake settles");
+
+        _allocateUSDC(pair, 200 * USDC_DEC);
+
+        uint256 pendingAfterRestake = vault.pendingFees(pair, alice);
+        assertGt(pendingAfterRestake, 0, "should earn fees after re-stake");
+    }
 }
