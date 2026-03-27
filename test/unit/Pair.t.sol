@@ -265,10 +265,11 @@ contract PairTest is Test {
         assertEq(uint256(r1), maxAmount, "reserve1 should be at max");
     }
 
-    function test_swap_exactlyAtUint112Max_succeeds() public {
-        // First mint at max boundary
+    function test_swap_exactlyAtUint112Max_inputOverflows() public {
+        // Reserves at uint112.max means any additional input token
+        // will push balance over the limit — Pair correctly rejects it.
         uint256 maxAmount = uint256(type(uint112).max);
-        
+
         tokenA.mint(alice, maxAmount);
         tokenB.mint(alice, maxAmount);
 
@@ -278,27 +279,21 @@ contract PairTest is Test {
         Pair(pair).mint(alice);
         vm.stopPrank();
 
-        // Now perform a small swap - reserves should stay at/near max
+        // Sending even 1 wei of tokenA makes balance0 = uint112.max + 1 → overflow
         tokenA.mint(bob, 1 ether);
-        
+
         address t0 = Pair(pair).token0();
         bool aIsT0 = address(tokenA) == t0;
-        
+
         vm.startPrank(bob);
         tokenA.transfer(pair, 1 ether);
-        
-        // Small swap should succeed even with max reserves
+        vm.expectRevert(Pair.Pair__Overflow.selector);
         if (aIsT0) {
             Pair(pair).swap(0, 0.99 ether, bob);
         } else {
             Pair(pair).swap(0.99 ether, 0, bob);
         }
         vm.stopPrank();
-
-        // Verify reserves are still valid uint112
-        (uint112 r0, uint112 r1,) = Pair(pair).getReserves();
-        assertLe(uint256(r0), uint256(type(uint112).max), "reserve0 should not overflow");
-        assertLe(uint256(r1), uint256(type(uint112).max), "reserve1 should not overflow");
     }
 
     // -------------------------------------------------------
