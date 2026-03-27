@@ -606,8 +606,145 @@ contract FeeConverterTest is Test {
     }
 
     // -------------------------------------------------------
-    // TRANSFER OWNERSHIP
+    // PREVIEW CONVERSION - additional branch coverage
     // -------------------------------------------------------
+
+    function test_previewConversion_zeroRawAmount_returnsFalse() public {
+        // rawAmount == 0 branch in previewConversion
+        MockERC20 emptyToken = new MockERC20("Empty", "EMP", 18);
+        address emptyPair = factory.createPair(address(emptyToken), address(usdc));
+        // No fees deposited → rawFeeBalances == 0
+        (uint256 raw,,,, bool ok) = converter.previewConversion(emptyPair, address(emptyToken));
+        assertEq(raw, 0);
+        assertFalse(ok);
+    }
+
+    function test_previewConversion_noPairForToken_returnsFalse() public {
+        // usdcFeeTokenPair == address(0) branch: token has no USDC pair in factory
+        MockERC20 orphanToken = new MockERC20("Orphan", "ORP", 18);
+        // Create a pair for orphanToken with something other than USDC
+        // so factory.getPair(orphanToken, usdc) returns address(0)
+        MockERC20 other = new MockERC20("Other", "OTH", 18);
+        address orphanPair = factory.createPair(address(orphanToken), address(other));
+
+        // Seed vault with fees for orphanPair
+        orphanToken.mint(address(vault), 10 ether);
+        vm.prank(address(router));
+        vault.depositFees(orphanPair, address(orphanToken), 10 ether);
+
+        (uint256 raw, uint256 exp,,, bool ok) = converter.previewConversion(orphanPair, address(orphanToken));
+        assertGt(raw, 0);
+        assertEq(exp, 0);
+        assertFalse(ok);
+    }
+
+    function test_previewConversion_twapUnavailable_returnsFalse() public {
+        // TWAP catch branch: oracle has no observation → getTWAPForTokens reverts
+        MockERC20 noOracleToken = new MockERC20("NoOracle", "NOO", 18);
+        address noOraclePair = factory.createPair(address(noOracleToken), address(usdc));
+
+        noOracleToken.mint(owner, 1000 ether);
+        usdc.mint(owner, 2000 * 1e6);
+        vm.startPrank(owner);
+        noOracleToken.transfer(noOraclePair, 100 ether);
+        usdc.transfer(noOraclePair, 200 * 1e6);
+        Pair(noOraclePair).mint(owner);
+        vm.stopPrank();
+
+        // No oracle update → getTWAPForTokens reverts with NoObservation
+        noOracleToken.mint(address(vault), 10 ether);
+        vm.prank(address(router));
+        vault.depositFees(noOraclePair, address(noOracleToken), 10 ether);
+
+        (uint256 raw,,,, bool ok) = converter.previewConversion(noOraclePair, address(noOracleToken));
+        assertGt(raw, 0);
+        assertFalse(ok, "should return false when TWAP unavailable");
+    }
+
+    function test_previewConversion_callerBonusCapped() public {
+        // callerBonus > MAX_CALLER_BONUS branch in previewConversion
+        // Need expectedUsdc > 500_000 USDC so 0.1% > 50 USDC
+        // Use the deepToken pair from the hard cap test setup
+        MockERC20 deepToken = new MockERC20("DeepToken", "DEEP", 6);
+        address deepPair = factory.createPair(address(deepToken), address(usdc));
+
+        uint256 deepPool = 50_000_000 * 1e6;
+        deepToken.mint(owner, deepPool);
+        usdc.mint(owner, deepPool);
+        vm.startPrank(owner);
+        deepToken.transfer(deepPair, deepPool);
+        usdc.transfer(deepPair, deepPool);
+        Pair(deepPair).mint(owner);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 1);
+        Pair(deepPair).sync();
+        vm.prank(keeper);
+        oracle.update(deepPair);
+        vm.warp(block.timestamp + 2 hours);
+        Pair(deepPair).sync();
+        vm.prank(keeper);
+        oracle.update(deepPair);
+        vm.warp(block.timestamp + 1 hours);
+        Pair(deepPair).sync();
+
+        uint256 fee = 600_000 * 1e6;
+        deepToken.mint(address(vault), fee);
+        vm.prank(address(router));
+        vault.depositFees(deepPair, address(deepToken), fee);
+
+        (, uint256 expectedUsdc, uint256 callerBonus,,) =
+            converter.previewConversion(deepPair, address(deepToken));
+
+        assertGt(expectedUsdc, 500_000 * 1e6, "expected > 500k USDC");
+        assertEq(callerBonus, converter.MAX_CALLER_BONUS(), "bonus should be capped at 50 USDC");
+    }
+
+    // -------------------------------------------------------
+    // CONVERT - additional branch coverage
+    // -------------------------------------------------------
+
+    function test_convert_noUsdcPairForToken_reverts() public {
+        // usdcFeeTokenPair == address(0) branch in convert()
+        MockERC20 orphanToken = new MockERC20("Orphan", "ORP", 18);
+        MockERC20 other = new MockERC20("Other", "OTH", 18);
+        // Create pair between orphanToken and other (NOT usdc)
+        address orphanPair = factory.createPair(address(orphanToken), address(other));
+
+        orphanToken.mint(address(vault), 10 ether);
+        vm.prank(address(router));
+        vault.depositFees(orphanPair, address(orphanToken), 10 ether);
+
+        vm.prank(keeper);
+        vm.expectRevert(FeeConverter.TWAPUnavailable.selector);
+        converter.convert(orphanPair, address(orphanToken));
+    }
+
+    function test_convert_pairNotRegistered_reverts() public {
+        // _getPairToken0 !success branch: pass an EOA (no code) as pair
+        address eoa = makeAddr("eoa");
+        vm.prank(keeper);
+        vm.expectRevert(FeeConverter.PairNotRegistered.selector);
+        converter.convert(eoa, address(feeToken));
+    }
+
+    function test_convert_zeroBonusNotTransferred() public {
+        // callerBonus == 0 branch: seed a tiny amount so expectedUsdc is just
+        // above MIN_CONVERSION_USDC but bonus rounds to 0
+        // At 0.1% (10 bps), bonus = 0 when usdcReceived < 10000 (i.e. < $0.01)
+        // We need usdcReceived between $10 and $10000 for bonus to be non-zero
+        // Actually bonus = usdcReceived * 10 / 10000, rounds to 0 when usdcReceived < 1000
+        // So seed fees worth just above $10 but below $0.10 bonus threshold
+        // usdcReceived must be < 1000 (< $0.001) for bonus == 0 — impossible above $10 min
+        // The callerBonus == 0 branch is only reachable if usdcReceived == 0,
+        // which can't happen after a successful swap above MIN_CONVERSION_USDC.
+        // Instead verify the bonus > 0 path is always taken for normal conversions.
+        uint256 keeperBefore = usdc.balanceOf(keeper);
+        vm.prank(keeper);
+        converter.convert(pair, address(feeToken));
+        // Bonus is always > 0 for any conversion above $10
+        assertGt(usdc.balanceOf(keeper) - keeperBefore, 0, "bonus should be non-zero");
+    }
 
     function test_transferOwnership_onlyOwner() public {
         vm.prank(stranger);

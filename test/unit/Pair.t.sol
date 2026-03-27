@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {MockERC20}      from "../mocks/MockERC20.sol";
-import {ReentrantToken} from "../mocks/MaliciousTokens.sol";
+import {ReentrantToken, ReturnFalseToken} from "../mocks/MaliciousTokens.sol";
 import {Pair}           from "../../src/Pair.sol";
 import {Factory}        from "../../src/FactoryContract.sol";
 
@@ -677,8 +677,7 @@ contract PairTest is Test {
         assertEq(Pair(pair).balanceOf(feeTo1), feeTo1Balance, "feeTo1 balance should not change");
     }
 
-    function test_protocolFee_kLastBehavior_multipleTransitions() public {
-        // Test kLast through multiple state transitions
+    function test_protocolFee_kLastBehavior_multipleTransitions() public {        // Test kLast through multiple state transitions
         _mint(alice, 10000 ether, 10000 ether);
         
         // 1. Start: feeTo = 0, kLast = 0
@@ -703,6 +702,82 @@ contract PairTest is Test {
         
         // kLast values should be different due to different reserve states
         assertNotEq(kLast1, kLast2, "kLast should reflect current reserves");
+    }
+
+    function test_protocolFee_rootKNotGreater_noFeesMinted() public {
+        // _mintProtocolFee branch: kLast != 0 but rootK <= rootKLast
+        // This happens when reserves decrease (e.g. after a burn with no swaps)
+        factory.setFeeTo(feeTo);
+        _mint(alice, 10000 ether, 10000 ether);
+
+        // kLast is now set
+        assertGt(Pair(pair).kLast(), 0);
+
+        // Burn some liquidity — reduces reserves, so rootK < rootKLast
+        uint256 liqAlice = Pair(pair).balanceOf(alice);
+        _burn(alice, liqAlice / 2);
+
+        uint256 feeToBalBefore = Pair(pair).balanceOf(feeTo);
+
+        // Next mint triggers _mintProtocolFee with kLast set but rootK <= rootKLast
+        // No protocol fee should be minted
+        _mint(bob, 1 ether, 1 ether);
+
+        assertEq(Pair(pair).balanceOf(feeTo), feeToBalBefore, "no fee when rootK did not grow");
+    }
+
+    function test_burn_kLastUpdated_whenFeeOn() public {
+        // burn() feeOn branch: kLast updated after burn when feeTo is set
+        factory.setFeeTo(feeTo);
+        _mint(alice, 100 ether, 100 ether);
+
+        uint256 liq = Pair(pair).balanceOf(alice);
+        _burn(alice, liq / 2);
+
+        // kLast should be updated after burn when feeTo != address(0)
+        assertGt(Pair(pair).kLast(), 0, "kLast should be set after burn with feeOn");
+    }
+
+    function test_burn_kLastNotUpdated_whenFeeOff() public {
+        // burn() feeOn = false branch: kLast stays 0 when feeTo is address(0)
+        assertEq(factory.feeTo(), address(0));
+        _mint(alice, 100 ether, 100 ether);
+
+        uint256 liq = Pair(pair).balanceOf(alice);
+        _burn(alice, liq / 2);
+
+        assertEq(Pair(pair).kLast(), 0, "kLast should stay 0 when feeOff");
+    }
+
+    function test_safeTransfer_failureReverts() public {
+        // _safeTransfer failure branch via ReturnFalseToken
+        ReturnFalseToken badToken = new ReturnFalseToken();
+        MockERC20 tB2 = new MockERC20("B2", "B2", 18);
+
+        badToken.mint(alice, 1_000_000 ether);
+        tB2.mint(alice, 1_000_000 ether);
+
+        address badPair = factory.createPair(address(badToken), address(tB2));
+
+        vm.startPrank(alice);
+        badToken.transfer(badPair, 10_000 ether);
+        tB2.transfer(badPair, 10_000 ether);
+        Pair(badPair).mint(alice);
+        vm.stopPrank();
+
+        // Swap should fail because badToken.transfer returns false
+        tB2.mint(bob, 1 ether);
+        vm.startPrank(bob);
+        tB2.transfer(badPair, 1 ether);
+        address t0 = Pair(badPair).token0();
+        bool badIsT0 = address(badToken) == t0;
+        vm.expectRevert(Pair.Pair__TransferFailed.selector);
+        if (badIsT0) {
+            Pair(badPair).swap(0.9 ether, 0, bob);
+        } else {
+            Pair(badPair).swap(0, 0.9 ether, bob);
+        }
+        vm.stopPrank();
     }
 
     // -------------------------------------------------------
