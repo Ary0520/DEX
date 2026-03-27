@@ -14,15 +14,15 @@ import {Factory}          from "../src/FactoryContract.sol";
 contract BootstrapOracle is Script {
 
     // ── Paste from Deploy.s.sol output ────────────────────────────────────
-    address constant FACTORY = 0x0000000000000000000000000000000000000001; // TODO
-    address constant ORACLE  = 0x0000000000000000000000000000000000000002; // TODO
+    address constant FACTORY = 0x23942d68C74f80cE259a4dA31a59856fFde5425e;
+    address constant ORACLE  = 0xA18F7Bd8be9611fD8499C15e0BC6aa9C4c0eF268;
 
     // ── Paste from DeployTokens.s.sol output ──────────────────────────────
-    address constant USDC    = 0x0000000000000000000000000000000000000003; // TODO
-    address constant WETH    = 0x0000000000000000000000000000000000000004; // TODO
-    address constant WBTC    = 0x0000000000000000000000000000000000000005; // TODO
-    address constant ARB     = 0x0000000000000000000000000000000000000006; // TODO
-    address constant DAI     = 0x0000000000000000000000000000000000000007; // TODO
+    address constant USDC    = 0x98697D7bc9ea50CE6682ed52CBC95806E7fDee0f;
+    address constant WETH    = 0x11dA2D696ddA3E569608F7E802F7CfD5BBe89d4b;
+    address constant WBTC    = 0xFeD51c995304775D37C54a7197a9197150147E3b;
+    address constant ARB     = 0xC4999f55d2887d003d17Dc42625354fA364c29D1;
+    address constant DAI     = 0x9e3b254cAdC9eaeFa80fD85F26Eb7BbBE1F59560;
 
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
