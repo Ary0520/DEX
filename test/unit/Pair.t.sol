@@ -751,26 +751,38 @@ contract PairTest is Test {
 
     function test_safeTransfer_failureReverts() public {
         // _safeTransfer failure branch via ReturnFalseToken
+        // ReturnFalseToken.transfer() returns false without moving tokens
+        // We need badToken to be the OUTPUT token so _safeTransfer is called on it
+        // Input token must actually update balances so amountIn > 0 is detected
         ReturnFalseToken badToken = new ReturnFalseToken();
         MockERC20 tB2 = new MockERC20("B2", "B2", 18);
 
-        badToken.mint(alice, 1_000_000 ether);
+        // Mint and seed pair — badToken.transfer works for setup since
+        // ReturnFalseToken does update balances in transfer (just returns false)
+        // Actually it doesn't update balances — use tB2 as input, badToken as output
+        badToken.mint(address(this), 10_000 ether);
         tB2.mint(alice, 1_000_000 ether);
 
         address badPair = factory.createPair(address(badToken), address(tB2));
 
-        vm.startPrank(alice);
-        badToken.transfer(badPair, 10_000 ether);
-        tB2.transfer(badPair, 10_000 ether);
-        Pair(badPair).mint(alice);
-        vm.stopPrank();
+        // Seed liquidity by directly minting to pair
+        // badToken.transfer returns false so we can't use it normally
+        // Use vm.store to set balances directly
+        // Instead: use a different approach — seed via deal
+        deal(address(badToken), badPair, 10_000 ether);
+        deal(address(tB2), badPair, 10_000 ether);
 
-        // Swap should fail because badToken.transfer returns false
+        // Manually set reserves by calling sync (which calls _update)
+        Pair(badPair).sync();
+
+        // Now swap: send tB2 in, expect badToken out
+        // _safeTransfer(badToken, bob, amount) → badToken.transfer returns false → revert
+        address t0 = Pair(badPair).token0();
+        bool badIsT0 = address(badToken) == t0;
+
         tB2.mint(bob, 1 ether);
         vm.startPrank(bob);
         tB2.transfer(badPair, 1 ether);
-        address t0 = Pair(badPair).token0();
-        bool badIsT0 = address(badToken) == t0;
         vm.expectRevert(Pair.Pair__TransferFailed.selector);
         if (badIsT0) {
             Pair(badPair).swap(0.9 ether, 0, bob);
