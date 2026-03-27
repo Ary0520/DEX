@@ -25,7 +25,7 @@ contract DeployTokens is Script {
 
         vm.stopBroadcast();
 
-        console.log("=== TOKEN ADDRESSES — paste into Deploy.s.sol ===");
+        console.log("=== TOKEN ADDRESSES - paste into Deploy.s.sol ===");
         console.log("USDC:", address(usdc));
         console.log("WETH:", address(weth));
         console.log("WBTC:", address(wbtc));

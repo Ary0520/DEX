@@ -28,11 +28,11 @@ contract Deploy is Script {
 
     // ── Token addresses (set by DeployTokens.s.sol) ───────────────────────
     // Update these after running DeployTokens first.
-    address constant USDC = 0x5c55e9075386Bb76d77bed821E209fE6cac350b6;
-    address constant WETH = 0x9a1eDFdcA16212683E45Fb3C285115a2668F3d10;
-    address constant WBTC = 0x5140a037A1cD818a17ebFbF812D6fEf60e8dc5a8;
-    address constant ARB  = 0xA52079EE2000c801A1d355d51f276b0A03F86D39;
-    address constant DAI  = 0x280F784ff03772fBc82E20052bb0247d042a5b07;
+    address constant USDC = 0x98697D7bc9ea50CE6682ed52CBC95806E7fDee0f;
+    address constant WETH = 0x11dA2D696ddA3E569608F7E802F7CfD5BBe89d4b;
+    address constant WBTC = 0xFeD51c995304775D37C54a7197a9197150147E3b;
+    address constant ARB  = 0xC4999f55d2887d003d17Dc42625354fA364c29D1;
+    address constant DAI  = 0x9e3b254cAdC9eaeFa80fD85F26Eb7BbBE1F59560;
 
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
