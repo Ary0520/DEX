@@ -139,7 +139,10 @@ contract Factory {
         }
         if (_pair == address(0)) revert DEX__PairAlreadyExists();
 
-        Pair(_pair).initialize(token0, token1);
+        // ── Auto-detect tier FIRST so we can pass lpFeeBps to initialize ──
+        Tier detectedTier = _detectTier(token0, token1);
+
+        Pair(_pair).initialize(token0, token1, tierConfig[detectedTier].lpFeeBps);
 
         pair = _pair;
         getPair[token0][token1] = pair;
@@ -148,8 +151,6 @@ contract Factory {
 
         _registeredPairs[pair] = true;
 
-        // ── Auto-detect tier ──────────────────────────────────
-        Tier detectedTier = _detectTier(token0, token1);
         pairTier[pair] = detectedTier;
 
         emit PairCreated(token0, token1, pair, detectedTier);

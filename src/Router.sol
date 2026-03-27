@@ -28,6 +28,7 @@ interface IPair {
     function getReserves() external view returns (uint112, uint112, uint32);
     function token0() external view returns (address);
     function token1() external view returns (address);
+    function lpFeeBps() external view returns (uint256);
 }
 
 interface IILShieldVault {
@@ -335,12 +336,13 @@ contract Router is ReentrancyGuard {
 
             (uint112 r0, uint112 r1,) = IPair(pair).getReserves();
             address token0 = IPair(pair).token0();
+            uint256 fee = IPair(pair).lpFeeBps();
 
             (uint256 rIn, uint256 rOut) = path[i] == token0
                 ? (uint256(r0), uint256(r1))
                 : (uint256(r1), uint256(r0));
 
-            amounts[i + 1] = _getAmountOut(amounts[i], rIn, rOut);
+            amounts[i + 1] = _getAmountOut(amounts[i], rIn, rOut, fee);
         }
     }
 
@@ -469,14 +471,18 @@ contract Router is ReentrancyGuard {
     function _getAmountOut(
         uint256 amountIn,
         uint256 reserveIn,
-        uint256 reserveOut
+        uint256 reserveOut,
+        uint256 feeBps
     ) internal pure returns (uint256 amountOut) {
         if (amountIn  == 0) revert Router__AmountZero();
         if (reserveIn == 0 || reserveOut == 0) revert Router__PairNotFound();
 
-        uint256 amountInWithFee = amountIn * 997;
+        // feeBps e.g. 30 = 0.30%, 5 = 0.05%
+        // amountInWithFee = amountIn * (10000 - feeBps)
+        // amountOut = amountInWithFee * reserveOut / (reserveIn * 10000 + amountInWithFee)
+        uint256 amountInWithFee = amountIn * (10000 - feeBps);
         amountOut = (amountInWithFee * reserveOut)
-            / (reserveIn * 1000 + amountInWithFee);
+            / (reserveIn * 10000 + amountInWithFee);
     }
 
     /// @notice Gets price from TWAP oracle, falls back to spot only if TWAP unavailable

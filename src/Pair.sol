@@ -28,6 +28,10 @@ contract Pair is ERC20 {
 
     uint256 public constant MINIMUM_LIQUIDITY = 1000;
 
+    /// @notice LP fee in bps (e.g. 30 = 0.30%, 5 = 0.05%).
+    ///         Set once at initialize() from Factory tier config. Never changes.
+    uint256 public lpFeeBps;
+
     uint public kLast;    
 
     error Pair__Forbidden();
@@ -77,7 +81,7 @@ contract Pair is ERC20 {
     /////////////
     //functions//
     /////////////
-    function initialize(address _token0, address _token1) external{
+    function initialize(address _token0, address _token1, uint256 _lpFeeBps) external{
         if(msg.sender !=factory){
             revert Pair__Forbidden();
         }
@@ -87,9 +91,12 @@ contract Pair is ERC20 {
 
         if (_token0 == address(0) || _token1 == address(0)) revert Pair__InvalidAddress();
         if (_token0 == _token1) revert Pair__InvalidAddress();
+        // lpFeeBps must be between 1 (0.01%) and 100 (1.00%) — sane LP fee range
+        if (_lpFeeBps == 0 || _lpFeeBps > 100) revert Pair__InvalidAddress();
 
-        token0 = _token0;
-        token1 = _token1;
+        token0    = _token0;
+        token1    = _token1;
+        lpFeeBps  = _lpFeeBps;
         
         isAlreadyInitialized = true;
     }
@@ -310,11 +317,10 @@ contract Pair is ERC20 {
             revert Pair__AmountZero();
         }
         
-        uint balance0Adjusted = balance0 * 1000 - amount0In*3;
-        uint balance1Adjusted = balance1 * 1000 - amount1In*3;
+        uint balance0Adjusted = balance0 * 10000 - amount0In * lpFeeBps;
+        uint balance1Adjusted = balance1 * 10000 - amount1In * lpFeeBps;
 
-        
-        if(balance0Adjusted * balance1Adjusted < uint256(_reserve0) * uint256(_reserve1) * 1000*1000){
+        if(balance0Adjusted * balance1Adjusted < uint256(_reserve0) * uint256(_reserve1) * 10000 * 10000){
             revert Pair__InvariantViolation();
         }
 

@@ -98,12 +98,11 @@ contract PairTest is Test {
     // -------------------------------------------------------
 
     function test_initialize_onlyFactory_reverts() public {
-    Pair rawPair = new Pair();
-    // Call from a random address that is NOT the deployer (factory)
-    vm.prank(alice);
-    vm.expectRevert(Pair.Pair__Forbidden.selector);
-    rawPair.initialize(address(tokenA), address(tokenB));
-}
+        Pair rawPair = new Pair();
+        vm.prank(alice);
+        vm.expectRevert(Pair.Pair__Forbidden.selector);
+        rawPair.initialize(address(tokenA), address(tokenB), 30);
+    }
 
     function test_initialize_setsTokensCorrectly() public view {
         address t0 = Pair(pair).token0();
@@ -117,7 +116,7 @@ contract PairTest is Test {
     function test_initialize_doubleInit_reverts() public {
         vm.prank(address(factory));
         vm.expectRevert(Pair.Pair__AlreadyInitialized.selector);
-        Pair(pair).initialize(address(tokenA), address(tokenB));
+        Pair(pair).initialize(address(tokenA), address(tokenB), 30);
     }
 
     function test_initialize_identicalTokens_reverts() public {

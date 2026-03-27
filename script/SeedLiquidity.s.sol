@@ -1,98 +1,136 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Script, console} from "forge-std/Script.sol";
-import {MockERC20} from "../test/mocks/MockERC20.sol";
-import {Router} from "../src/Router.sol";
+/// @notice Seeds initial liquidity into all pairs and bootstraps the TWAP oracle.
+///
+/// Run AFTER Deploy.s.sol. Update all addresses below first.
+///
+/// What this does:
+///   1. Mints test tokens to deployer
+///   2. Approves Router
+///   3. Creates pairs via Router.addLiquidity (also registers IL positions)
+///   4. Takes first TWAP oracle snapshot for each pair
+///   5. Waits are done off-chain — after 2 hours call BootstrapOracle.s.sol
+///
+/// Price ratios used (realistic testnet prices):
+///   1 WETH  = 2000 USDC
+///   1 WBTC  = 60000 USDC  (= 30 WETH)
+///   1 ARB   = 1 USDC
+///   1 DAI   = 1 USDC
+///   1 WETH  = 2000 DAI
+
+import {Script, console}  from "forge-std/Script.sol";
+import {MockERC20}         from "../test/mocks/MockERC20.sol";
+import {Router}            from "../src/Router.sol";
+import {TWAPOracle}        from "../src/TWAPOracle.sol";
+import {Factory}           from "../src/FactoryContract.sol";
 
 contract SeedLiquidity is Script {
 
-    // deployed addresses
-    address constant ROUTER   = 0xc00416cbdC7268A5Cb599382F05dE9adeE5A2EC1;
-    address constant WETH     = 0x9a1eDFdcA16212683E45Fb3C285115a2668F3d10;
-    address constant USDC     = 0x5c55e9075386Bb76d77bed821E209fE6cac350b6;
-    address constant DAI      = 0x280F784ff03772fBc82E20052bb0247d042a5b07;
-    address constant WBTC     = 0x5140a037A1cD818a17ebFbF812D6fEf60e8dc5a8;
-    address constant ARB      = 0xA52079EE2000c801A1d355d51f276b0A03F86D39;
+    // ── Paste addresses from Deploy.s.sol output ──────────────────────────
+    address constant FACTORY   = 0x0000000000000000000000000000000000000001; // TODO
+    address constant ROUTER    = 0x0000000000000000000000000000000000000002; // TODO
+    address constant ORACLE    = 0x0000000000000000000000000000000000000003; // TODO
 
-    uint constant DEADLINE = type(uint).max;
+    // ── Paste addresses from DeployTokens.s.sol output ────────────────────
+    address constant USDC      = 0x0000000000000000000000000000000000000004; // TODO
+    address constant WETH      = 0x0000000000000000000000000000000000000005; // TODO
+    address constant WBTC      = 0x0000000000000000000000000000000000000006; // TODO
+    address constant ARB       = 0x0000000000000000000000000000000000000007; // TODO
+    address constant DAI       = 0x0000000000000000000000000000000000000008; // TODO
+
+    uint256 constant DEADLINE  = type(uint256).max;
 
     function run() external {
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
+        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
+        address deployer    = vm.addr(deployerKey);
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast(deployerKey);
 
-        // ── Step 1: Mint tokens to yourself ──────────────────────────────────
-        // Using realistic price ratios so the DEX prices make sense:
-        // 1 WETH = 2000 USDC
-        // 1 WETH = 2000 DAI
-        // 1 WBTC = 60000 USDC (so 1 WBTC = 30 WETH)
-        // 1 ARB  = 1 USDC (roughly)
+        // ── Step 1: Mint tokens ───────────────────────────────────────────
+        MockERC20(USDC).mint(deployer, 2_000_000 * 1e6);       // 2M USDC
+        MockERC20(WETH).mint(deployer, 1_000 ether);            // 1000 WETH
+        MockERC20(WBTC).mint(deployer, 50 * 1e8);               // 50 WBTC
+        MockERC20(ARB).mint(deployer,  1_000_000 ether);        // 1M ARB
+        MockERC20(DAI).mint(deployer,  1_000_000 ether);        // 1M DAI
 
-        MockERC20(WETH).mint(deployer, 1_000 ether);
-        MockERC20(USDC).mint(deployer, 4_000_000 ether);  // 2000 per WETH, covers multiple pairs
-        MockERC20(DAI).mint(deployer,  2_000_000 ether);
-        MockERC20(WBTC).mint(deployer, 50 ether);         // 50 WBTC
-        MockERC20(ARB).mint(deployer, 1_000_000 ether); // was 500_000, now 1_000_000
+        // ── Step 2: Approve Router ────────────────────────────────────────
+        MockERC20(USDC).approve(ROUTER, type(uint256).max);
+        MockERC20(WETH).approve(ROUTER, type(uint256).max);
+        MockERC20(WBTC).approve(ROUTER, type(uint256).max);
+        MockERC20(ARB).approve(ROUTER,  type(uint256).max);
+        MockERC20(DAI).approve(ROUTER,  type(uint256).max);
 
-        // ── Step 2: Approve router to spend everything ────────────────────────
-        MockERC20(WETH).approve(ROUTER, type(uint).max);
-        MockERC20(USDC).approve(ROUTER, type(uint).max);
-        MockERC20(DAI).approve(ROUTER,  type(uint).max);
-        MockERC20(WBTC).approve(ROUTER, type(uint).max);
-        MockERC20(ARB).approve(ROUTER,  type(uint).max);
-
-        // ── Step 3: Seed pairs with realistic ratios ──────────────────────────
-
-        // WETH/USDC — 1 WETH = 2000 USDC
+        // ── Step 3: Seed pairs ────────────────────────────────────────────
+        // WETH/USDC — BlueChip tier (WETH=bluechip, USDC=stable)
         Router(ROUTER).addLiquidity(
             WETH, USDC,
-            100 ether,          // 100 WETH
-            200_000 ether,      // 200,000 USDC
+            100 ether,           // 100 WETH
+            200_000 * 1e6,       // 200,000 USDC  (1 WETH = 2000 USDC)
             0, 0, deployer, DEADLINE
         );
-        console.log("WETH/USDC pool seeded");
+        console.log("WETH/USDC seeded");
 
-        // WETH/DAI — 1 WETH = 2000 DAI
-        Router(ROUTER).addLiquidity(
-            WETH, DAI,
-            100 ether,          // 100 WETH
-            200_000 ether,      // 200,000 DAI
-            0, 0, deployer, DEADLINE
-        );
-        console.log("WETH/DAI pool seeded");
-
-        // WBTC/USDC — 1 WBTC = 60,000 USDC
+        // WBTC/USDC — BlueChip tier
         Router(ROUTER).addLiquidity(
             WBTC, USDC,
-            10 ether,           // 10 WBTC
-            600_000 ether,      // 600,000 USDC — mint more USDC above if needed
+            10 * 1e8,            // 10 WBTC
+            600_000 * 1e6,       // 600,000 USDC  (1 WBTC = 60000 USDC)
             0, 0, deployer, DEADLINE
         );
-        console.log("WBTC/USDC pool seeded");
+        console.log("WBTC/USDC seeded");
 
-        // ARB/USDC — 1 ARB = 1 USDC
+        // ARB/USDC — BlueChip tier (ARB=bluechip, USDC=stable)
         Router(ROUTER).addLiquidity(
             ARB, USDC,
-            500_000 ether,      // 500,000 ARB
-            500_000 ether,      // 500,000 USDC
+            500_000 ether,       // 500,000 ARB
+            500_000 * 1e6,       // 500,000 USDC  (1 ARB = 1 USDC)
             0, 0, deployer, DEADLINE
         );
-        console.log("ARB/USDC pool seeded");
+        console.log("ARB/USDC seeded");
 
-        // WETH/ARB — 1 WETH = 2000 ARB
+        // DAI/USDC — Stable tier (both stable)
         Router(ROUTER).addLiquidity(
-            WETH, ARB,
-            50 ether,           // 50 WETH
-            100_000 ether,      // 100,000 ARB
+            DAI, USDC,
+            100_000 ether,       // 100,000 DAI
+            100_000 * 1e6,       // 100,000 USDC  (1 DAI = 1 USDC)
             0, 0, deployer, DEADLINE
         );
-        console.log("WETH/ARB pool seeded");
+        console.log("DAI/USDC seeded");
+
+        // WETH/DAI — BlueChip tier
+        Router(ROUTER).addLiquidity(
+            WETH, DAI,
+            100 ether,           // 100 WETH
+            200_000 ether,       // 200,000 DAI   (1 WETH = 2000 DAI)
+            0, 0, deployer, DEADLINE
+        );
+        console.log("WETH/DAI seeded");
+
+        // ── Step 4: First TWAP oracle snapshot for each pair ─────────────
+        // This is snapshot #1. You must wait >= 2 hours then run
+        // BootstrapOracle.s.sol to take snapshot #2 before TWAP is readable.
+        address wethUsdc = Factory(FACTORY).getPair(WETH, USDC);
+        address wbtcUsdc = Factory(FACTORY).getPair(WBTC, USDC);
+        address arbUsdc  = Factory(FACTORY).getPair(ARB,  USDC);
+        address daiUsdc  = Factory(FACTORY).getPair(DAI,  USDC);
+        address wethDai  = Factory(FACTORY).getPair(WETH, DAI);
+
+        TWAPOracle(ORACLE).update(wethUsdc);
+        TWAPOracle(ORACLE).update(wbtcUsdc);
+        TWAPOracle(ORACLE).update(arbUsdc);
+        TWAPOracle(ORACLE).update(daiUsdc);
+        TWAPOracle(ORACLE).update(wethDai);
 
         vm.stopBroadcast();
 
-        console.log("\n--- ALL POOLS SEEDED ---");
-        console.log("Deployer:", deployer);
+        console.log("\n=== LIQUIDITY SEEDED ===");
+        console.log("WETH/USDC pair:", wethUsdc);
+        console.log("WBTC/USDC pair:", wbtcUsdc);
+        console.log("ARB/USDC pair: ", arbUsdc);
+        console.log("DAI/USDC pair: ", daiUsdc);
+        console.log("WETH/DAI pair: ", wethDai);
+        console.log("");
+        console.log("NEXT STEP: Wait >= 2 hours, then run BootstrapOracle.s.sol");
     }
 }
