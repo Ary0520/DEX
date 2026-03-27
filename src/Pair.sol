@@ -112,7 +112,9 @@ contract Pair is ERC20 {
         }
         
         uint32 blockTimestamp = uint32(block.timestamp);
-        uint32 timeElapsed = blockTimestamp - blockTimestampLast;
+        uint32 timeElapsed = blockTimestamp >= blockTimestampLast 
+            ? blockTimestamp - blockTimestampLast 
+            : 0;
 
         if(timeElapsed > 0 && reserve0 != 0 && reserve1 != 0){
             uint price0 = uint(reserve1) * 1e18 /reserve0;
