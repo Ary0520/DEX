@@ -372,17 +372,20 @@ contract FeeConverterTest is Test {
         vm.stopPrank();
 
         // Bootstrap oracle
-        vm.warp(T0 + 1);
+        // Always warp forward — never use absolute T0 timestamps after setUp
+        // setUp leaves block.timestamp at T0 + 1 + 3 hours = T0 + 10801
+        uint256 t = block.timestamp;
+
         Pair(bigPair).sync();
         vm.prank(keeper);
         oracle.update(bigPair);
 
-        vm.warp(T0 + 1 + 2 hours);
+        vm.warp(t + 2 hours);
         Pair(bigPair).sync();
         vm.prank(keeper);
         oracle.update(bigPair);
 
-        vm.warp(T0 + 1 + 3 hours);
+        vm.warp(t + 3 hours);
         Pair(bigPair).sync();
 
         // Seed vault with 600k bigToken (~$600k at 1:1)
@@ -415,17 +418,18 @@ contract FeeConverterTest is Test {
         Pair(deepPair).mint(owner);
         vm.stopPrank();
 
-        vm.warp(T0 + 1);
+        uint256 t2 = block.timestamp;
+
         Pair(deepPair).sync();
         vm.prank(keeper);
         oracle.update(deepPair);
 
-        vm.warp(T0 + 1 + 2 hours);
+        vm.warp(t2 + 2 hours);
         Pair(deepPair).sync();
         vm.prank(keeper);
         oracle.update(deepPair);
 
-        vm.warp(T0 + 1 + 3 hours);
+        vm.warp(t2 + 3 hours);
         Pair(deepPair).sync();
 
         // Seed 600k tokens = 1.2% of pool → minimal slippage, ~$600k out

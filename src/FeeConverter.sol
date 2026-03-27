@@ -48,6 +48,7 @@ pragma solidity ^0.8.20;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 interface IFactory {
     function getPair(address tokenA, address tokenB) external view returns (address);
@@ -279,7 +280,7 @@ contract FeeConverter is ReentrancyGuard {
         // Expected USDC output at TWAP price, applied to the NET swap amount.
         // twapPrice = how much USDC (6 dec) per 1 feeToken (18 dec), expressed
         // as an 18-decimal fixed-point number (as returned by TWAPOracle).
-        uint256 expectedUsdc = (amountForSwap * twapPrice) / 1e18;
+        uint256 expectedUsdc = Math.mulDiv(amountForSwap, twapPrice, 1e18);
 
         // Reject if expected output is below the $10 minimum.
         if (expectedUsdc < MIN_CONVERSION_USDC) revert BelowMinimum();
@@ -393,7 +394,7 @@ contract FeeConverter is ReentrancyGuard {
             returns (uint256 price)
         {
             if (price == 0) return (rawAmount, 0, 0, 0, false);
-            expectedUsdc = (amountForSwap * price) / 1e18;
+            expectedUsdc = Math.mulDiv(amountForSwap, price, 1e18);
         } catch {
             return (rawAmount, 0, 0, 0, false);
         }
