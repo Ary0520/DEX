@@ -1,0 +1,948 @@
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    🌿  V E R D E X S W A P
+         The Next Generation Decentralized Exchange
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TAGLINE:  Swap freely. Earn fairly. Sleep safely.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+📖  TABLE OF CONTENTS
+─────────────────────────────────────────
+
+  1.  What is VerdexSwap?
+  2.  The Problem With DeFi Today
+  3.  How VerdexSwap Solves It — Core Architecture
+  4.  IL Shield — The Impermanent Loss Protection System
+  5.  The Three-Tier Pool System
+  6.  Fee Structure & Protocol Economics
+  7.  Protocol Fee & TVL Bootstrap Phase
+  8.  The TWAP Oracle — Manipulation-Resistant Pricing
+  9.  The Fee Converter — A Self-Sustaining Machine
+ 10.  Security Architecture
+ 11.  Where Competitors Failed — And How We Excel
+ 12.  Competitive Advantage Summary
+ 13.  Roadmap
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1.  WHAT IS VERDEXSWAP?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VerdexSwap is a fully decentralized exchange — a DEX — built from the
+ground up with one core promise: liquidity providers should not lose
+money just for showing up.
+
+On every other decentralized exchange today, when you deposit your
+tokens to earn trading fees, you face an invisible enemy called
+Impermanent Loss (IL). The more the market moves, the more money
+quietly disappears from your position — often wiping out weeks or
+months of fee earnings without warning. Most platforms either ignore
+this problem entirely or promise a solution they cannot actually
+deliver when markets get rough.
+
+VerdexSwap is different. It is the first DEX to combine a classic,
+battle-tested automated market maker (AMM) with a live, funded
+insurance shield that actually pays liquidity providers back when
+impermanent loss occurs. Every swap, every trade, every token exchange
+on VerdexSwap seeds a protection fund. That fund exists for one
+reason: to put money back in the pockets of the people who keep the
+protocol liquid.
+
+VerdexSwap is not a whitepaper promise. It is a fully deployed,
+on-chain system where every piece of logic — swaps, fee collection,
+protection payouts, pricing — runs transparently in smart contracts
+that anyone can verify.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2.  THE PROBLEM WITH DEFI TODAY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+To understand why VerdexSwap was built, you need to understand what
+liquidity providers — the backbone of every DEX — actually experience
+today.
+
+───────────────────────────────────────────
+  THE IMPERMANENT LOSS TRAP
+───────────────────────────────────────────
+
+Imagine you deposit $1,000 worth of two tokens into a liquidity pool
+on a DEX. You earn trading fees. Sounds great.
+
+Now imagine ETH goes up 2x while you are in the pool. Because of how
+AMMs work, the pool automatically rebalances. You end up with less ETH
+and more stable tokens. When you withdraw, your position is worth
+less than it would have been if you had simply held your tokens in
+your wallet and done nothing.
+
+That difference is impermanent loss. It is not a bug — it is built
+into how AMMs work. And it silently destroys LP returns, especially
+during volatile markets.
+
+Research has consistently shown that a large percentage of liquidity
+providers on major DEXs actually earn negative returns when impermanent
+loss is accounted for — meaning they would have been better off just
+holding their tokens.
+
+───────────────────────────────────────────
+  THE SANDWICH ATTACK PROBLEM
+───────────────────────────────────────────
+
+When you make a trade on most DEXs, your transaction sits in a public
+waiting room (the blockchain mempool) before it is processed. Bots
+watch this waiting room 24/7. When they see a large trade coming, they
+jump in front of it, push the price up, let your trade execute at the
+worse price, then sell right after — pocketing the difference. This
+is called a sandwich attack.
+
+In March 2026, a single trader lost approximately $50 million to a
+sandwich attack on a SushiSwap pool — the position dwindled to just
+$36,000. This is the reality of trading on vanilla AMMs.
+
+───────────────────────────────────────────
+  ORACLE MANIPULATION
+───────────────────────────────────────────
+
+Many DeFi protocols rely on live spot prices to make decisions —
+insurance payouts, lending collateral values, fee calculations. Spot
+prices can be manipulated in a single block using large trades or
+flash loans. Protocols that rely on them are vulnerable to attackers
+who can distort prices temporarily, trigger favourable outcomes for
+themselves, and walk away with profits at the expense of everyone else.
+
+───────────────────────────────────────────
+  FAKE IL PROTECTION
+───────────────────────────────────────────
+
+Several protocols have advertised impermanent loss protection.
+In practice, they either:
+
+  •  Printed their own token to "compensate" you, diluting every
+     holder and creating a death spiral when markets fell.
+  •  Froze withdrawals the moment conditions got bad, trapping
+     users when they needed their money most.
+  •  Allowed instant exits during crises, triggering bank runs
+     that drained the protection fund in hours.
+
+These are not edge cases.  These are what actually happened —
+specifically to Bancor, the most high-profile attempt before
+VerdexSwap.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3.  HOW VERDEXSWAP SOLVES IT — CORE ARCHITECTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VerdexSwap is built from eight interconnected smart contracts, each
+handling a specific responsibility. Together they form a complete
+exchange ecosystem.
+
+┌────────────────────────────────────────────────────────────────┐
+│                    VERDEXSWAP ARCHITECTURE                      │
+│                                                                 │
+│   USER ──→ ROUTER ──→ PAIR (Pool) ──→ LP receives tokens        │
+│               │                                                 │
+│               ├──→ IL SHIELD VAULT (fees go here)               │
+│               │         │                                       │
+│               │         ├──→ STAKERS earn yield                 │
+│               │         └──→ LPs receive IL payout on exit      │
+│               │                                                 │
+│               └──→ TREASURY (protocol revenue)                  │
+│                                                                 │
+│   FACTORY ── creates & categorises all Pairs                    │
+│   TWAP ORACLE ── provides manipulation-resistant prices         │
+│   POSITION MANAGER ── tracks every LP's entry value            │
+│   COVERAGE CURVE ── calculates fair payout amounts             │
+│   FEE CONVERTER ── converts fee tokens into USDC               │
+└────────────────────────────────────────────────────────────────┘
+
+──────────────────────────────
+  THE FACTORY
+──────────────────────────────
+
+The Factory is the master registry of the protocol. Any two tokens
+can be paired together to create a new liquidity pool. The Factory
+uses a mathematical trick called CREATE2 to deploy new pools at
+deterministic, predictable addresses — meaning anyone can calculate
+a pool's address before it even exists, without needing to query the
+blockchain.
+
+The Factory also automatically categorises every pool into a tier
+(Stable, Blue Chip, or Volatile) based on the tokens involved. This
+tier determines how much fee protection and IL coverage applies to
+that pool — handled automatically, no configuration needed for most
+standard pools.
+
+──────────────────────────────
+  THE PAIR (POOL)
+──────────────────────────────
+
+Each pair is a self-contained liquidity pool containing two tokens.
+It uses the classic constant-product AMM formula — the same battle-
+tested math that powers Uniswap — so every swap is mathematically
+guaranteed to be fair. The pool:
+
+  •  Holds the actual token reserves.
+  •  Mints LP tokens (proof of your share) when you deposit.
+  •  Burns LP tokens when you withdraw.
+  •  Charges a 0.3% base swap fee that stays in the pool as
+     earnings for liquidity providers.
+  •  Continuously tracks cumulative prices for the TWAP oracle.
+  •  Is protected by a reentrancy lock, meaning no malicious
+     contract can call back into it mid-transaction to steal funds.
+  •  Validates every swap against the invariant, ensuring the
+     math can never be violated.
+
+The Pair also supports a protocol fee mechanism (described in the
+Protocol Fee section below) that can be toggled on or off by
+governance.
+
+──────────────────────────────
+  THE ROUTER
+──────────────────────────────
+
+The Router is the main entry point for users. It orchestrates
+every action — adding liquidity, removing liquidity, and swapping —
+and connects all the other contracts together.
+
+When you swap, the Router:
+  1.  Reads the pool's tier to know the current fee split.
+  2.  Deducts a small portion of your input (the "vault fee") and
+      routes it directly to the IL Shield Vault as insurance funding.
+  3.  Deducts a separate portion as treasury revenue.
+  4.  Sends the rest to the pool for the actual swap.
+  5.  Enforces your slippage tolerance — if the swap would give you
+      less than you asked for, it reverts the entire transaction.
+
+When you add liquidity, the Router:
+  1.  Records your exact deposit value and timestamp in the
+      Position Manager — this is your baseline for IL calculation.
+  2.  Updates the vault's exposure tracker so it knows how much
+      outstanding IL liability exists across the protocol.
+
+When you remove liquidity, the Router:
+  1.  Retrieves your original deposit value from the Position Manager.
+  2.  Compares it against what your position is worth today.
+  3.  If you have been in the pool for at least 7 days and your
+      position is worth less than when you deposited, it automatically
+      requests an IL payout on your behalf from the vault.
+  4.  Pays your IL compensation directly in USDC, on top of your
+      normal withdrawal.
+
+This means IL protection is seamless — you do not need to file a
+claim, use a separate interface, or take any extra steps.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4.  IL SHIELD — THE IMPERMANENT LOSS PROTECTION SYSTEM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The IL Shield is the most innovative piece of VerdexSwap. It is a
+fully on-chain insurance system that protects liquidity providers from
+impermanent loss without printing tokens, without central custody, and
+without the failure modes that destroyed Bancor.
+
+──────────────────────────────
+  HOW IT IS FUNDED
+──────────────────────────────
+
+Every single swap on VerdexSwap contributes a small percentage of the
+input amount to the IL Shield Vault. This is not a promise — it
+happens automatically, in the same transaction as the swap, through
+code. No one can intercept it, redirect it, or skip it.
+
+The fees accumulate in the vault as raw tokens (whatever token the
+user was swapping). A FeeConverter then converts these into USDC so
+the vault always holds a stable, predictable reserve.
+
+──────────────────────────────
+  HOW COVERAGE IS CALCULATED
+──────────────────────────────
+
+Coverage is not a flat number. VerdexSwap uses a mathematical curve
+called the CoverageCurve to calculate exactly how much protection you
+are entitled to when you withdraw.
+
+The curve has three inputs:
+
+  1.  HOW LONG YOU HAVE BEEN IN THE POOL
+      Coverage grows the longer you stay. It starts at 0 when you
+      first deposit and grows rapidly in the first 30 days, then
+      gradually approaches its maximum over time. After about 8 months
+      of continuous liquidity provision, you can receive near-maximum
+      coverage. This rewards loyal, long-term LPs and discourages
+      mercenary behaviour.
+
+        7 days  → ~11% of your tier's ceiling covered
+       30 days  → ~39% of your tier's ceiling covered
+       60 days  → ~63% of your tier's ceiling covered
+       90 days  → ~78% of your tier's ceiling covered
+      120 days  → ~87% of your tier's ceiling covered
+      180 days  → ~95% of your tier's ceiling covered
+      240 days+ → ~98% of your tier's ceiling covered
+
+  2.  HOW HEALTHY THE VAULT IS
+      If the vault has more than 150% of all outstanding IL claims
+      in reserve, you get full coverage. If the vault is under stress
+      (reserve falls toward outstanding liabilities), coverage
+      automatically scales down. The vault can never promise more than
+      it can pay — this is hardcoded into the math.
+
+  3.  YOUR POOL'S TIER CEILING
+      Each tier has a maximum coverage cap (e.g., volatile pools cap
+      at 75%, blue chip at 50%, stable at 15%). No matter how long
+      you wait or how healthy the vault is, you can never receive more
+      than the ceiling for your pool type.
+
+──────────────────────────────
+  SAFETY MECHANISMS
+──────────────────────────────
+
+  CIRCUIT BREAKER
+  If the vault's payout utilisation exceeds 50%, all future coverage
+  amounts are automatically halved. This is a mathematical speed
+  bump — the vault slows payouts before it can be drained.
+
+  PAUSE THRESHOLD
+  If utilisation reaches 80%, payouts pause automatically. Your
+  withdrawal still goes through — you get your tokens back — but the
+  IL top-up is held until the vault recovers. You are never trapped.
+
+  PER-USER CAP
+  A single user can receive a maximum of 20% of their liquidity
+  value in one payout. Prevents whale manipulation.
+
+  PER-PAYOUT POOL CAP
+  A single payout event cannot exceed 5% of the entire pool vault.
+  Prevents catastrophic single-event drain.
+
+──────────────────────────────
+  IL VAULT STAKERS
+──────────────────────────────
+
+VerdexSwap's vault has a second class of participants beyond LPs:
+stakers. Anyone can deposit USDC into a pool's vault as an "insurance
+seller." Stakers:
+
+  •  Earn a share of the swap fee revenue (50% of vault fees go
+     directly to stakers).
+  •  Provide additional capital backing that expands coverage capacity.
+  •  Are exposed to loss only if payouts exceed the fee buffer —
+     stakers are the last line of defence.
+
+To prevent a bank run (the exact scenario that destroyed Bancor),
+stakers face a 14-day cooldown on withdrawals. They must request an
+unstake first, wait 14 days, then withdraw. This means panic cannot
+drain the vault instantly during a market crisis. Stakers know this
+before they enter — it is part of the deal.
+
+──────────────────────────────
+  POSITION MANAGER
+──────────────────────────────
+
+The Position Manager is the bookkeeper of the IL Shield. It tracks,
+for every LP in every pool:
+
+  •  How much liquidity they deposited.
+  •  What the value of that liquidity was at the time of deposit
+     (in USDC, using TWAP pricing).
+  •  When they deposited (weighted average, so re-deposits are
+     handled fairly).
+
+Partial withdrawals are fully supported. If you added liquidity in
+multiple batches, your position is tracked as a weighted average.
+If you withdraw half, you get the IL compensation proportional to
+that half. The math works for every scenario.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5.  THE THREE-TIER POOL SYSTEM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Not all token pairs are the same. A USDC/USDT pool behaves completely
+differently from an ETH/MEME pool. VerdexSwap automatically assigns
+every pool to one of three tiers — Stable, Blue Chip, or Volatile —
+based on the tokens it contains.
+
+┌─────────────────────────────────────────────────────────────────┐
+│  TIER          │  EXAMPLE PAIRS       │  IL COVERAGE CAP        │
+├─────────────────────────────────────────────────────────────────┤
+│  STABLE        │  USDC / USDT         │  Up to 15%              │
+│  (both tokens  │  DAI / USDC          │  (IL is nearly zero     │
+│   are stable)  │  USDT / DAI          │   on stable pairs)      │
+├─────────────────────────────────────────────────────────────────┤
+│  BLUE CHIP     │  ETH / USDC          │  Up to 50%              │
+│  (major assets │  BTC / ETH           │  (moderate volatility   │
+│   + stables)   │  ETH / BTC           │   — meaningful cover)   │
+├─────────────────────────────────────────────────────────────────┤
+│  VOLATILE      │  Any token pair      │  Up to 75%              │
+│  (everything   │  not meeting above   │  (high risk — highest   │
+│   else)        │  criteria            │   IL protection given)  │
+└─────────────────────────────────────────────────────────────────┘
+
+The Factory auto-detects the tier when a pool is created. The fee
+split and IL coverage ceiling for each tier are stored on-chain and
+applied automatically to every swap. The team can override a pool's
+tier and update fee parameters at any time, giving the protocol
+flexibility to respond to new assets and market conditions.
+
+In practical terms:
+
+  •  If you are a stable-coin LP, your IL risk is very low, so the
+     vault takes a smaller fee from your swaps and offers modest
+     cover. Fair trade.
+
+  •  If you are providing liquidity for an emerging token that
+     might swing 10x, the vault charges a higher fee per swap and
+     offers you up to 75% IL coverage — real protection where
+     you need it most.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6.  FEE STRUCTURE & PROTOCOL ECONOMICS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VerdexSwap has a multi-layered fee structure designed to sustain all
+participants: traders, LPs, insurance stakers, and the protocol itself.
+
+──────────────────────────────
+  SWAP FEE ANATOMY
+──────────────────────────────
+
+When a trader swaps Token A for Token B, their input amount is split:
+
+  ┌─────────────────────────────────────────────────┐
+  │  TOTAL INPUT (e.g. 1,000 USDC)                  │
+  │                                                 │
+  │  ├─ Vault fee  (goes to IL Shield Vault)         │
+  │  │   Volatile pools: 0.15%  = 1.50 USDC         │
+  │  │   Blue Chip pools: 0.10% = 1.00 USDC         │
+  │  │   Stable pools:    0.03% = 0.30 USDC         │
+  │  │                                              │
+  │  ├─ Treasury fee (protocol revenue)             │
+  │  │   Volatile pools: 0.10%  = 1.00 USDC         │
+  │  │   Blue Chip pools: 0.05% = 0.50 USDC         │
+  │  │   Stable pools:    0.02% = 0.20 USDC         │
+  │  │                                              │
+  │  └─ LP fee (stays in the pool, added to your    │
+  │     earnings as a liquidity provider)           │
+  │      All pools: 0.30% = 3.00 USDC               │
+  └─────────────────────────────────────────────────┘
+
+The trader sends only the latter two portions to the pool and the
+vault simultaneously.  The LP gets the base 0.30% — exactly what
+they get on Uniswap — plus they are now also protected by the vault
+being seeded with every trade.
+
+──────────────────────────────
+  INSIDE THE VAULT FEES
+──────────────────────────────
+
+Of the fees that reach the IL Shield Vault:
+
+  •  50% is distributed to USDC stakers (the insurance sellers)
+     as yield, proportional to their share.
+  •  50% is added to the USDC reserve that backs LP protection
+     payouts.
+
+This creates a real yield for stakers funded entirely by organic
+trading activity — not token emissions, not inflation.
+
+──────────────────────────────
+  PROTOCOL FEE (ON/OFF SWITCH)
+──────────────────────────────
+
+In addition to the above fee structure, VerdexSwap inherits a protocol-
+level fee switch from the Pair contract — a mechanism borrowed from
+Uniswap's architecture. When this fee is active, a small percentage
+of the LP fee is diverted to a designated protocol fee address instead
+of staying entirely in the pool.
+
+This fee is currently OFF and will remain off during the bootstrap
+phase of the protocol. It will only be activated by governance once
+the protocol reaches a meaningful level of Total Value Locked (TVL)
+and sufficient trading volume — ensuring that LPs are not penalised
+during the early growth period. The community will be informed well
+in advance of any activation.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7.  PROTOCOL FEE & TVL BOOTSTRAP PHASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VerdexSwap is designed for long-term growth, and the team recognises
+that the early months of a protocol are critical. Liquidity providers
+who take the risk of being early adopters deserve to earn the most,
+not give up a cut to the protocol from day one.
+
+Our approach:
+
+  ✅  PROTOCOL FEE IS OFF AT LAUNCH
+      Every basis point of the LP fee stays with liquidity providers
+      at launch. Early LPs capture the full 0.30% base fee per swap
+      with zero protocol dilution.
+
+  ✅  FEE IS TIED TO TVL & HEALTH MILESTONES
+      The protocol fee will only be considered for activation once the
+      protocol reaches meaningful TVL thresholds and demonstrates
+      sustained trading volume. Specific milestones will be defined and
+      made public before activation is ever discussed.
+
+  ✅  GOVERNANCE ACTIVATION ONLY
+      No single address can flip this switch silently. Any protocol fee
+      activation goes through a transparent governance process with
+      advance notice to the community.
+
+  ✅  HARD CAP ON FEES
+      Even when active, the fee configuration in the Factory limits
+      total fees (vault + treasury + LP) to a maximum of 2% in all
+      scenarios. This cap is enforced in code, preventing any abusive
+      fee setting regardless of who controls the protocol.
+
+This approach ensures VerdexSwap competes hard for early liquidity
+by being the most LP-friendly option available — then grows into
+sustainable protocol revenue only after earning the community's trust.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8.  THE TWAP ORACLE — MANIPULATION-RESISTANT PRICING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Accurate, trustworthy prices are the foundation of every DeFi protocol.
+Without them, insurance payouts can be gamed, lending ratios break
+down, and attackers can extract value by briefly distorting spot prices.
+
+VerdexSwap uses a Time-Weighted Average Price (TWAP) oracle — a
+technology that calculates prices by averaging them over time, not
+just reading the current spot price. This means:
+
+  •  A hacker cannot flash-loan their way to a $50M IL claim.
+     They would need to hold a manipulated price for 30+ minutes
+     continuously, which costs more than any potential gain.
+
+  •  Prices used for IL calculations reflect real market conditions,
+     not temporary distortions.
+
+VERDEXSWAP'S TWAP ORACLE — UNIQUE FEATURES:
+
+  LAZY TWAP DESIGN (No Keeper Required)
+  Traditional TWAP oracles need a "keeper" — a dedicated bot that
+  calls the oracle every few minutes to keep prices fresh. If the
+  keeper stops working, the whole protocol's pricing breaks.
+
+  VerdexSwap's oracle is permissionless and self-maintaining. Anyone
+  can update it. The FeeConverter — which runs to convert accumulated
+  fees into USDC — automatically updates the oracle when it notices
+  the price data is getting stale. Because FeeConverter callers earn
+  a 0.1% bonus on each conversion (capped at 50 USDC), they are
+  financially incentivised to run it regularly.
+
+  This means the oracle maintains itself through normal user
+  activity — no infrastructure to maintain, no keeper to pay.
+
+  AUTOMATIC WINDOW GROWTH
+  The TWAP window (the time period over which prices are averaged)
+  grows automatically between updates:
+    •  Minimum allowed window: 30 minutes
+    •  Recommended update frequency: every 2 hours
+    •  Maximum staleness tolerance: 8 hours
+
+  The longer the window, the more manipulation-resistant the price.
+  If no one updates for a while, the window just gets larger and
+  the price becomes even harder to attack. The system gets more
+  secure when it is idle, not less.
+
+  DUAL GUARDRAILS
+  Every TWAP read enforces both a minimum window (30 minutes —
+  prevents short-term price manipulation from being usable) and a
+  maximum staleness (8 hours — ensures prices are never dangerously
+  outdated). If neither condition is met, the oracle rejects the
+  read and forces fresh data.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9.  THE FEE CONVERTER — A SELF-SUSTAINING MACHINE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+When users swap Token A for Token B on VerdexSwap, a portion of Token
+A accumulates in the IL Shield Vault as raw fee tokens. The vault
+needs USDC to pay out IL claims. That means someone needs to convert
+those raw tokens into USDC.
+
+The FeeConverter handles this, and it does so in a way that is:
+
+  PERMISSIONLESS — anyone can call it, not just the team.
+
+  INCENTIVISED — callers earn 0.1% of the USDC output (capped at
+  50 USDC per call), making it worth running as a regular activity.
+
+  MANIPULATION-PROOF — every conversion enforces the TWAP price as
+  a minimum. If the actual swap gives less than 99% of the TWAP-
+  derived amount, the entire conversion is rejected. An attacker
+  cannot manipulate the spot price to get a bad rate — the TWAP
+  would not have moved enough for the manipulation to be profitable.
+
+  GAS-SAFE — conversions below $10 equivalent in USDC value are
+  rejected, preventing spam and dust attacks on the accounting.
+
+  COOLDOWN-PROTECTED — the same token pair cannot be converted more
+  than once per hour, preventing rapid repeated calls.
+
+  SELF-HEALING — if the TWAP data is stale when a conversion is
+  attempted, the FeeConverter automatically updates the oracle
+  first, then retries. If the oracle is too fresh to update yet,
+  the conversion fails gracefully and the tokens are returned to the
+  vault safely — nothing is lost.
+
+The result is a fully autonomous flywheel: swaps happen → fees
+accumulate → anyone converts fees to USDC for a small reward → the
+vault grows → more IL protection is available → the protocol is more
+attractive to LPs → more swaps happen. No team intervention needed.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10.  SECURITY ARCHITECTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Security is not a feature bolted on after the fact. Every contract
+in VerdexSwap was designed with security as the primary constraint.
+
+  ─────────────────────────────────────────
+  REENTRANCY PROTECTION — EVERYWHERE
+  ─────────────────────────────────────────
+  The single most common way DeFi protocols have been hacked is
+  reentrancy — a malicious contract calling back into a target
+  contract before its internal state is updated, creating a window
+  to steal funds.
+
+  VerdexSwap addresses this at multiple layers:
+
+    •  The Pair contract has a custom reentrancy lock on every
+       state-changing function (mint, burn, swap, skim).
+    •  The Router uses OpenZeppelin's battle-tested ReentrancyGuard.
+    •  The ILShieldVault uses ReentrancyGuard on all payouts and
+       stake/unstake operations.
+    •  The FeeConverter uses ReentrancyGuard on the conversion function.
+    •  Every contract follows the Checks-Effects-Interactions (CEI)
+       pattern — state is updated BEFORE any external token transfers.
+
+  ─────────────────────────────────────────
+  OVERFLOW PROTECTION
+  ─────────────────────────────────────────
+  All contracts use Solidity 0.8.x, which has built-in overflow and
+  underflow protection. Additionally, the Pair contract explicitly
+  checks that reserves never exceed the maximum value of a uint112,
+  preventing any silent wrapping behaviour.
+
+  ─────────────────────────────────────────
+  SAFE TOKEN TRANSFERS
+  ─────────────────────────────────────────
+  Non-standard ERC20 tokens can return false on a transfer failure
+  instead of reverting. VerdexSwap handles this correctly throughout:
+  the Pair uses a custom safeTransfer that checks both the return
+  value and whether the call succeeded. The Router and Vault use
+  OpenZeppelin's SafeERC20 library.
+
+  ─────────────────────────────────────────
+  INPUT VALIDATION
+  ─────────────────────────────────────────
+  Every external function validates its inputs before touching state:
+    •  Zero address checks on all address parameters.
+    •  Zero amount checks on all value parameters.
+    •  Pair existence checks before any interaction.
+    •  Deadline / expiry checks on time-sensitive operations.
+    •  Slippage checks to protect users from bad trades.
+    •  Identical token checks so no one can create a pool of a token
+       with itself.
+
+  ─────────────────────────────────────────
+  ACCESS CONTROL
+  ─────────────────────────────────────────
+  Admin functions are protected by explicit owner checks.
+  Vault functions are protected by router-only checks.
+  The FeeConverter can only pull raw fees via a dedicated interface
+  that tracks, verifies, and deducts balances in the correct order.
+  No function bypasses these access controls.
+
+  ─────────────────────────────────────────
+  INVARIANT ENFORCEMENT
+  ─────────────────────────────────────────
+  Every swap on the Pair is validated against the constant-product
+  invariant before finalisation. If the swap would leave the pool in
+  a state where k = x * y is lower than before the swap (after
+  accounting for fees), the transaction reverts. This makes it
+  mathematically impossible to drain a pool through a swap.
+
+  ─────────────────────────────────────────
+  FLASH-DEPOSIT PROTECTION
+  ─────────────────────────────────────────
+  The CoverageCurve enforces a minimum 7-day lock before any IL
+  coverage accrues. This prevents someone from depositing a large
+  amount of liquidity, immediately triggering a fake IL claim,
+  collecting the payout, and withdrawing — a classic "flash deposit"
+  attack. You must genuinely be in the pool for at least a week
+  before you earn any protection.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11.  WHERE COMPETITORS FAILED — AND HOW WE EXCEL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Every decision in VerdexSwap was informed by studying what went wrong
+on every major DEX that came before it. We did not reinvent the wheel
+— we fixed the wheels that kept breaking.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+  BANCOR v3 — THE IL PROTECTION THAT FAILED WHEN IT MATTERED MOST
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  WHAT BANCOR PROMISED:
+  Bancor marketed 100% instant impermanent loss protection from the
+  moment you deposited. LPs loved it. The protocol grew to billions
+  in TVL on the back of this promise.
+
+  WHAT ACTUALLY HAPPENED (June 2022):
+  When the crypto market crashed and liquidity dried up, the cost of
+  covering IL became enormous. Bancor's protection mechanism worked
+  by printing BNT (its own native token) to compensate LPs. As more
+  BNT entered circulation, BNT's price fell, which increased the cost
+  of further compensation — a death spiral.
+
+  Simultaneously, a "bank run" began: LPs rushed to withdraw while
+  protection was still being offered. Bancor froze withdrawals and
+  suspended IL protection, trapping users at the worst possible
+  moment. Legal action followed. The protocol never recovered.
+
+  ROOT CAUSE:
+  •  The protection fund was backed by an inflationary token, not
+     real money. When that token lost value, so did the protection.
+  •  There was no cooldown on withdrawals — panic could drain the
+     vault in hours.
+  •  Coverage was 100% instantly — no time-based accrual to
+     discourage short-term mercenary behaviour.
+  •  No circuit breaker to slow payouts as the vault was stressed.
+
+  HOW VERDEXSWAP DIFFERS:
+  ✅  Protection is funded by real swap fees, converted to USDC.
+      No token printing. No inflation. Real money backing real claims.
+  ✅  14-day unstake cooldown prevents bank runs. Built into code,
+      cannot be bypassed even by governance in an emergency.
+  ✅  CoverageCurve means coverage accrues over time — no instant
+      100% on day one. Discourages mercenary LPs, rewards real ones.
+  ✅  Circuit breaker halves payouts at 50% utilisation, pauses at
+      80% — automatic protection before the vault is ever at risk.
+  ✅  Vault health multiplier: if the reserve falls below 150% of
+      outstanding exposure, coverage scales down automatically.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+  UNISWAP v2 — THE GOLD STANDARD WITH ONE GIANT BLIND SPOT
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  WHAT UNISWAP V2 GOT RIGHT:
+  Uniswap v2 is the most battle-tested AMM in history. The
+  constant-product formula works. The LP token model works.
+  The invariant check is mathematically sound. VerdexSwap's Pair
+  contract is built on the same trusted foundation.
+
+  WHERE UNISWAP V2 FALLS SHORT:
+  •  Zero IL protection. LPs take the full hit of every market move.
+  •  All pools use the same 0.30% fee regardless of volatility.
+     A stable pool and a meme coin pool pay the same — unfair to
+     one side regardless of which way you look at it.
+  •  The protocol fee (when enabled) is a blunt instrument — same
+     cut from every pool, no tier-awareness.
+  •  TWAP oracle must be explicitly updated by external keepers.
+     If keepers lag, the oracle goes stale.
+
+  HOW VERDEXSWAP DIFFERS:
+  ✅  Built on the same mathematical base for reliability and
+      auditability — then adds a full IL protection layer on top.
+  ✅  Three-tier fee system: fees match the risk profile of the
+      pool. Stable pairs pay minimal insurance premiums; volatile
+      pairs pay more and get more coverage.
+  ✅  Self-maintaining lazy TWAP — no keeper required.
+  ✅  Protocol fee is off at launch, protecting early LPs.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SUSHISWAP — GOVERNANCE CHAOS AND THE $3.3M ROUTER HACK
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  WHAT HAPPENED:
+  In April 2023, SushiSwap's RouteProcessor2 contract was exploited
+  due to an input validation vulnerability. An attacker provided a
+  crafted argument that caused the router to interact with a malicious
+  contract. Over $3.3 million was stolen, affecting users across 14
+  different networks.
+
+  In 2024, SushiSwap also faced governance manipulation accusations,
+  deletion of its governance forum, and alleged disregard for
+  community snapshot votes. Its TVL collapsed from over $8 billion
+  to under $102 million — a 98.7% decline.
+
+  ROOT CAUSE:
+  •  Input validation failures in routing logic.
+  •  Governance centralisation and lack of transparency.
+  •  No sustainable revenue model; relying on token emissions.
+
+  HOW VERDEXSWAP DIFFERS:
+  ✅  Every Router function validates every input — zero-address
+      checks, pair existence checks, amount checks, path length checks.
+  ✅  ReentrancyGuard on all Router functions.
+  ✅  Fee-based revenue model, not token emission dependent.
+  ✅  Contracts are minimal and purpose-built — less attack surface.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+  GENERAL AMM SANDWICH ATTACKS (MEV)
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  THE PROBLEM:
+  MEV bots monitor pending transactions and sandwich large swaps,
+  extracting value from traders at scale. One documented incident saw
+  a trader lose $50 million to an MEV sandwich on SushiSwap — the
+  position was reduced to $36,000. These attacks are systemic across
+  all public mempool-based DEXs.
+
+  VERDEXSWAP'S APPROACH:
+  ✅  Strict slippage enforcement: the Router always checks that the
+      output meets `amountOutMin` before the swap finalises. Any
+      sandwich attempt that would push the output below the user's
+      minimum tolerance causes the entire transaction to revert.
+  ✅  Deadline enforcement: every transaction has an expiry. If a
+      transaction is held in the mempool too long (e.g., a bot is
+      waiting to insert before it), the transaction expires and reverts.
+  ✅  TWAP-based pricing for all IL calculations ensures that even
+      if a swap is sandwiched, the IL payout calculation is not
+      based on the temporarily manipulated price.
+
+  Note: Sandwich attacks are a network-level problem shared by all
+  public mempool DEXs. VerdexSwap provides the contractual safeguards
+  available within the AMM model. Future integration with private
+  mempools or MEV-resistant RPC endpoints will be explored.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ORACLE MANIPULATION ATTACKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  THE PROBLEM:
+  Many DeFi protocols use spot prices from their own pools as oracle
+  feeds. Attackers use flash loans to temporarily distort these prices,
+  trigger favourable conditions (e.g., fake IL to claim insurance),
+  and profit at the protocol's expense — all in a single transaction.
+
+  HOW VERDEXSWAP DIFFERS:
+  ✅  All IL calculations use TWAP pricing, not spot pricing.
+      A flash loan that changes the spot price for one block has zero
+      effect on a TWAP price averaged over 30 minutes to 8 hours.
+  ✅  The 7-day minimum lock before any IL can be claimed means
+      that even if someone could manipulate a TWAP (which would require
+      holding an incorrect price for days at enormous cost), they
+      would need to plan 7+ days in advance.
+  ✅  The FeeConverter enforces a 1% slippage cap vs TWAP for all
+      fee conversions, protecting the vault from bad conversion rates
+      even if a token's spot price is briefly manipulated.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12.  COMPETITIVE ADVANTAGE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌────────────────────────────────────────────┬───────────────┬─────────────┬──────────────┬───────────────┐
+│  FEATURE                                   │  VerdexSwap   │  Uniswap v2 │  SushiSwap   │  Bancor v3    │
+├────────────────────────────────────────────┼───────────────┼─────────────┼──────────────┼───────────────┤
+│  Impermanent Loss Protection               │  ✅  Real USDC │  ❌  None   │  ❌  None    │  💀 Failed    │
+│  Protection funded by real fees            │  ✅           │  ❌         │  ❌          │  ❌ BNT print │
+│  Time-accrual coverage (no instant 100%)   │  ✅           │  —          │  —           │  ❌ Instant   │
+│  Vault circuit breaker                     │  ✅           │  —          │  —           │  ❌ None      │
+│  14-day unstake cooldown (no bank run)     │  ✅           │  —          │  —           │  ❌ None      │
+│  Tier-based fee system                     │  ✅           │  ❌ Flat    │  ❌ Flat     │  ❌           │
+│  Protocol fee off at launch (LP-first)     │  ✅           │  Optional   │  Active      │  —            │
+│  Manipulation-resistant TWAP oracle        │  ✅           │  Requires   │  Requires    │  Spot-based   │
+│                                            │               │  keeper     │  keeper      │               │
+│  Self-maintaining oracle (no keeper)       │  ✅           │  ❌         │  ❌          │  ❌           │
+│  Permissionless fee conversion             │  ✅           │  ❌         │  ❌          │  ❌           │
+│  Reentrancy protection (all contracts)     │  ✅           │  Partial    │  Partial     │  —            │
+│  Constant-product AMM (battle-tested)      │  ✅           │  ✅         │  ✅          │  ❌ Custom    │
+│  Multi-hop swaps supported                 │  ✅           │  ✅         │  ✅          │  —            │
+│  Partial LP withdrawal supported           │  ✅           │  ✅         │  ✅          │  ❌ Froze     │
+└────────────────────────────────────────────┴───────────────┴─────────────┴──────────────┴───────────────┘
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13.  ROADMAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  PHASE 1 — FOUNDATION  (Current)
+  ─────────────────────────────────
+  ✅  Core AMM contracts deployed (Factory, Pair, Router)
+  ✅  IL Shield system built (Vault, Position Manager, Coverage Curve)
+  ✅  TWAP Oracle with lazy self-maintenance deployed
+  ✅  FeeConverter with TWAP-protected conversions deployed
+  ✅  Three-tier pool system live
+  ✅  Protocol fee off — full LP earnings in bootstrap phase
+
+  PHASE 2 — TVL GROWTH & BOOTSTRAP
+  ──────────────────────────────────
+  ⬜  Public launch and LP onboarding campaigns
+  ⬜  Liquidity mining incentives for early pools
+  ⬜  Community education on IL Shield and staker yield
+  ⬜  TVL milestone tracking (transparent, on-chain)
+  ⬜  Achieve target TVL threshold before any protocol fee discussion
+
+  PHASE 3 — GOVERNANCE & PROTOCOL MATURITY
+  ──────────────────────────────────────────
+  ⬜  Decentralised governance deployment
+  ⬜  Community-controlled fee parameter adjustments
+  ⬜  Protocol fee activation vote (only after TVL milestones met)
+  ⬜  Expanded token whitelist for tier auto-detection
+  ⬜  Dashboard and analytics for vault health, coverage stats
+
+  PHASE 4 — EXPANSION
+  ─────────────────────
+  ⬜  Multi-chain deployment
+  ⬜  Private mempool integration (MEV resistance at network layer)
+  ⬜  Advanced LP management tools
+  ⬜  Institutional-grade liquidity products
+  ⬜  Third-party integrations and aggregator routing support
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                         CLOSING NOTE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VerdexSwap was built by people who have been burned by impermanent
+loss, frustrated by failed protection promises, and exhausted by
+watching DeFi protocols fail at the exact moment their users needed
+them most.
+
+Every design decision — the Coverage Curve's time-accrual, the 14-day
+cooldown, the circuit breakers, the TWAP-only pricing, the real USDC
+vault, the protocol fee being off at launch — was made to answer one
+question: "What would actually protect users when it matters?"
+
+We believe liquidity provision in DeFi should be a sustainable,
+rewarding activity — not a game where the protocol wins and the
+user quietly loses to an invisible mathematical force.
+
+VerdexSwap is our answer.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  All contracts are open source. All logic is immutable and on-chain.
+  Trust the code, not promises.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

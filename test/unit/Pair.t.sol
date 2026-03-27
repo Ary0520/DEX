@@ -243,6 +243,64 @@ contract PairTest is Test {
         vm.stopPrank();
     }
 
+    function test_mint_exactlyAtUint112Max_succeeds() public {
+        // Test balance exactly at uint112.max boundary (should succeed)
+        uint256 maxAmount = uint256(type(uint112).max);
+        
+        tokenA.mint(alice, maxAmount);
+        tokenB.mint(alice, maxAmount);
+
+        vm.startPrank(alice);
+        tokenA.transfer(pair, maxAmount);
+        tokenB.transfer(pair, maxAmount);
+        
+        // Should succeed - exactly at boundary is valid
+        uint256 liq = Pair(pair).mint(alice);
+        vm.stopPrank();
+
+        assertGt(liq, 0, "should mint liquidity at uint112.max boundary");
+        
+        (uint112 r0, uint112 r1,) = Pair(pair).getReserves();
+        assertEq(uint256(r0), maxAmount, "reserve0 should be at max");
+        assertEq(uint256(r1), maxAmount, "reserve1 should be at max");
+    }
+
+    function test_swap_exactlyAtUint112Max_succeeds() public {
+        // First mint at max boundary
+        uint256 maxAmount = uint256(type(uint112).max);
+        
+        tokenA.mint(alice, maxAmount);
+        tokenB.mint(alice, maxAmount);
+
+        vm.startPrank(alice);
+        tokenA.transfer(pair, maxAmount);
+        tokenB.transfer(pair, maxAmount);
+        Pair(pair).mint(alice);
+        vm.stopPrank();
+
+        // Now perform a small swap - reserves should stay at/near max
+        tokenA.mint(bob, 1 ether);
+        
+        address t0 = Pair(pair).token0();
+        bool aIsT0 = address(tokenA) == t0;
+        
+        vm.startPrank(bob);
+        tokenA.transfer(pair, 1 ether);
+        
+        // Small swap should succeed even with max reserves
+        if (aIsT0) {
+            Pair(pair).swap(0, 0.99 ether, bob);
+        } else {
+            Pair(pair).swap(0.99 ether, 0, bob);
+        }
+        vm.stopPrank();
+
+        // Verify reserves are still valid uint112
+        (uint112 r0, uint112 r1,) = Pair(pair).getReserves();
+        assertLe(uint256(r0), uint256(type(uint112).max), "reserve0 should not overflow");
+        assertLe(uint256(r1), uint256(type(uint112).max), "reserve1 should not overflow");
+    }
+
     // -------------------------------------------------------
     // BURN
     // -------------------------------------------------------
@@ -537,6 +595,119 @@ contract PairTest is Test {
         factory.setFeeTo(feeTo);
         _mint(alice, 100 ether, 100 ether);
         assertGt(Pair(pair).kLast(), 0, "kLast should be set when feeTo is set");
+    }
+
+    function test_protocolFee_stateTransition_zeroToFeeTo() public {
+        // Start with feeTo = address(0)
+        assertEq(factory.feeTo(), address(0));
+        
+        _mint(alice, 10000 ether, 10000 ether);
+        assertEq(Pair(pair).kLast(), 0, "kLast should be 0 initially");
+
+        // Perform swaps to generate fees
+        for (uint256 i = 0; i < 3; i++) {
+            vm.warp(block.timestamp + 1);
+            _swapAForB(bob, 100 ether);
+        }
+
+        // Now enable protocol fee mid-operation
+        factory.setFeeTo(feeTo);
+        
+        // Next mint should trigger protocol fee calculation
+        uint256 feeToBalBefore = Pair(pair).balanceOf(feeTo);
+        _mint(bob, 1 ether, 1 ether);
+        
+        // kLast should now be set
+        assertGt(Pair(pair).kLast(), 0, "kLast should be set after feeTo enabled");
+        
+        // No protocol fee should be minted for the transition (kLast was 0)
+        assertEq(Pair(pair).balanceOf(feeTo), feeToBalBefore, "no fee on first mint after enabling");
+    }
+
+    function test_protocolFee_stateTransition_feeToToZero() public {
+        // Start with feeTo enabled
+        factory.setFeeTo(feeTo);
+        _mint(alice, 10000 ether, 10000 ether);
+        
+        uint256 kLastBefore = Pair(pair).kLast();
+        assertGt(kLastBefore, 0, "kLast should be set initially");
+
+        // Perform swaps to generate fees
+        for (uint256 i = 0; i < 3; i++) {
+            vm.warp(block.timestamp + 1);
+            _swapAForB(bob, 100 ether);
+        }
+
+        // Disable protocol fee
+        factory.setFeeTo(address(0));
+        
+        // Next mint should clear kLast
+        _mint(bob, 1 ether, 1 ether);
+        
+        assertEq(Pair(pair).kLast(), 0, "kLast should be cleared after feeTo disabled");
+    }
+
+    function test_protocolFee_stateTransition_feeToChange() public {
+        // Start with feeTo enabled
+        address feeTo1 = makeAddr("feeTo1");
+        address feeTo2 = makeAddr("feeTo2");
+        
+        factory.setFeeTo(feeTo1);
+        _mint(alice, 10000 ether, 10000 ether);
+
+        // Perform swaps to generate fees
+        for (uint256 i = 0; i < 5; i++) {
+            vm.warp(block.timestamp + 1);
+            _swapAForB(bob, 100 ether);
+        }
+
+        // Mint to collect fees to feeTo1
+        _mint(bob, 1 ether, 1 ether);
+        uint256 feeTo1Balance = Pair(pair).balanceOf(feeTo1);
+        assertGt(feeTo1Balance, 0, "feeTo1 should receive protocol fees");
+
+        // Change feeTo address
+        factory.setFeeTo(feeTo2);
+
+        // More swaps
+        for (uint256 i = 0; i < 5; i++) {
+            vm.warp(block.timestamp + 1);
+            _swapAForB(bob, 100 ether);
+        }
+
+        // Mint should now send fees to feeTo2
+        _mint(bob, 1 ether, 1 ether);
+        
+        assertGt(Pair(pair).balanceOf(feeTo2), 0, "feeTo2 should receive protocol fees");
+        assertEq(Pair(pair).balanceOf(feeTo1), feeTo1Balance, "feeTo1 balance should not change");
+    }
+
+    function test_protocolFee_kLastBehavior_multipleTransitions() public {
+        // Test kLast through multiple state transitions
+        _mint(alice, 10000 ether, 10000 ether);
+        
+        // 1. Start: feeTo = 0, kLast = 0
+        assertEq(Pair(pair).kLast(), 0);
+        
+        // 2. Enable feeTo
+        factory.setFeeTo(feeTo);
+        _mint(bob, 1 ether, 1 ether);
+        uint256 kLast1 = Pair(pair).kLast();
+        assertGt(kLast1, 0, "kLast should be set");
+        
+        // 3. Disable feeTo
+        factory.setFeeTo(address(0));
+        _mint(bob, 1 ether, 1 ether);
+        assertEq(Pair(pair).kLast(), 0, "kLast should be cleared");
+        
+        // 4. Re-enable feeTo
+        factory.setFeeTo(feeTo);
+        _mint(bob, 1 ether, 1 ether);
+        uint256 kLast2 = Pair(pair).kLast();
+        assertGt(kLast2, 0, "kLast should be set again");
+        
+        // kLast values should be different due to different reserve states
+        assertNotEq(kLast1, kLast2, "kLast should reflect current reserves");
     }
 
     // -------------------------------------------------------
